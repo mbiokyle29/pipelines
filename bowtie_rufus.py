@@ -25,7 +25,7 @@ parser.add_argument("--output", help="Fullpath to output directory", default="./
 options = parser.parse_args()
 
 # logging
-logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO,)
 log = logging.getLogger(__name__)
 log.info("Starting Bowtie2 Run")
 
@@ -48,12 +48,26 @@ def gunzip(input_file, output_file):
         raise SystemExit
 
 # Step 2 align
-@transform(gunzip, suffix(".fastq"),".sam", options)
+@transform(input_files, suffix(".fastq"),".sam", options)
 def align_with_bowtie(input_file, output_file, options):
     log.info("Running bowtie2 on %s", input_file)
-    if subprocess.call(["bowtie2", "-t", "--no-unal", "-p", str(options.cores), "-x", options.index, input_file, "-S", output_file]):
+    
+    # use poen explicitly to cpature STDERR, check still
+    args = ["bowtie2", "-t", "--no-unal", "-p", str(options.cores), "-x", options.index, input_file, "-S", output_file]
+    p = subprocess.Popen(args, stderr=subprocess.STDOUT)
+    
+    # wait for it to complete
+    p.wait()
+    output = p.communicate()
+
+    # checkout out
+    if p.returncode:
         log.warn("bowtie alignment of %s failed, exiting", input_file)
+        log.warn(output)
         raise SystemExit
+
+    log.info("Bowtie output:")
+    log.info(output)
 
 # step 3 BAM
 @transform(align_with_bowtie, suffix(".sam"),".bam")
