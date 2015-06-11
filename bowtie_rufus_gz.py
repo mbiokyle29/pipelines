@@ -163,5 +163,14 @@ def cov_to_wig(input_file, output_file, genome, output):
     new_name = os.path.join(output, file_name)
     os.rename(output_file, new_name)
 
+
+@transform(cov_to_wig, suffix(".wig"), ".bw", options.size)
+def wig_to_bw(input_file, output_file, size_file):
+    log.info("Converting wig file %s to a big wig", input_file)
+
+    if subprocess.call(["wigToBigWig",input_file, size_file, output_file]):
+        log.warn("converting %s to a bigWig failed, exiting", input_file)
+        raise SystemExit
+
 # run the pipeline
 cmdline.run(options)
