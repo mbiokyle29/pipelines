@@ -17,7 +17,7 @@ import re
 parser = cmdline.get_argparse(description='Given a directory of NON-paired end reads -- Align them with bowtie')
 
 # Program arguments  -- Most go straight to bowtie
-parser.add_argument("--dir", help="Fullpath to the directory where the FASTQ reads are located", required=True)
+parser.add_argument("--dir", help="Fullpath to the directory where the FASTQ reads are located", required=True, nargs='+')
 parser.add_argument("--cores", help="Number of cores to run bowtie on", default=10)
 parser.add_argument("--index", help="Fullpath to the bowtie2 index in: /full/file/path/basename form", default="/data/refs/hg19/hg19")
 parser.add_argument("--output", help="Fullpath to output directory", default="./")

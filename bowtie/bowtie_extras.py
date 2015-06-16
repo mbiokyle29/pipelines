@@ -23,29 +23,33 @@ def check_default_args(cores,index,output, log):
             log.warn(" {} parameter was not given using default: {}".format(key, def_opts[key]))
 
 # not a ruffus task
-def make_fastq_list(directory, log):
+def make_fastq_list(directorys, log):
     
-    # make sure the dir exists
-    if not os.path.isdir(directory):
-        log.warn( "%s is not a valid dir, exiting", directory)
-        raise SystemExit 
+    fastqs = []
+    for directory in directorys:
 
-    # see if there are any compressed files
-    gz_blob = os.path.join(directory, "*.fastq.gz")
-    gzs = glob.glob(gz_blob)
+        # make sure the dir exists
+        if not os.path.isdir(directory):
+            log.warn( "%s is not a valid dir, exiting", directory)
+            raise SystemExit 
 
-    for gz in gzs:
-        log.info("gunzipping %s", gz)   
-
-        # 0 == all good, and bool false
-        if subprocess.call(["gunzip",gz]):
-            log.warn("gunzipping %s failed, exiting", gz)
-            raise SystemExit
-
-    # now glob the fastqs
-    blob = os.path.join(directory, "*.fastq")
-    fastqs = glob.glob(blob)
-
+        directory = os.path.abspath(directory)    
+        # see if there are any compressed files
+        gz_blob = os.path.join(directory, "*.fastq.gz")
+        gzs = glob.glob(gz_blob)
+    
+        for gz in gzs:
+            log.info("gunzipping %s", gz)   
+    
+            # 0 == all good, and bool false
+            if subprocess.call(["gunzip",gz]):
+                log.warn("gunzipping %s failed, exiting", gz)
+                raise SystemExit
+    
+        # now glob the fastqs
+        blob = os.path.join(directory, "*.fastq")
+        fastqs.extend(glob.glob(blob))
+    
     # make sure we got stuff
     if not fastqs:
         log.warn("Fastq list is empty, exiting")
