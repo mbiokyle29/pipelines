@@ -1,4 +1,4 @@
-import os, glob, re
+import os, glob, re, subprocess
 
 # :)
 MILLION = float(1000000)
@@ -22,7 +22,7 @@ def check_default_args(cores,index,output, log):
         if def_opts[key] == running_opts[key]:
             log.warn(" {} parameter was not given using default: {}".format(key, def_opts[key]))
 
-# not a ruffus command
+# not a ruffus task
 def make_fastq_list(directory, log):
     
     # make sure the dir exists
@@ -30,9 +30,20 @@ def make_fastq_list(directory, log):
         log.warn( "%s is not a valid dir, exiting", directory)
         raise SystemExit 
 
-    # glob the fastqs
-    # this is kinda hacky right now (need re for optional .gz)
-    blob = os.path.join(directory, "*.fastq*")
+    # see if there are any compressed files
+    gz_blob = os.path.join(directory, "*.fastq.gz")
+    gzs = glob.glob(gz_blob)
+
+    for gz in gzs:
+        log.info("gunzipping %s", gz)   
+
+        # 0 == all good, and bool false
+        if subprocess.call(["gunzip",gz]):
+            log.warn("gunzipping %s failed, exiting", gz)
+            raise SystemExit
+
+    # now glob the fastqs
+    blob = os.path.join(directory, "*.fastq")
     fastqs = glob.glob(blob)
 
     # make sure we got stuff
@@ -41,7 +52,6 @@ def make_fastq_list(directory, log):
         raise SystemExit
 
     return fastqs
-
 # not a ruffus command
 def record_bowtie_output(output,input_file, stats_file, log):
     # first make sure the output isnt messed up

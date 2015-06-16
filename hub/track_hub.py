@@ -1,4 +1,4 @@
-import os
+import os, subprocess
 class TrackHub:
 
     # init
@@ -15,6 +15,20 @@ class TrackHub:
 
         # make the subdirectory based on genome
         os.mkdir(self.genome_dir)
+
+    def make_2bit_file(self, fasta_file):
+
+        # make sure fasta exists
+        if not os.path.isfile(fasta_file):
+            print "Invalid fasta file"
+            raise SystemExit
+
+        # do it
+        bit_file = os.path.join(self.genome_dir, self.genome, ".2bit")
+        bit_command = ["faToTwoBit", fasta_file, bit_file]
+        if subprocess.call(bit_command):
+            print "Making 2bit file failed"
+            raise SystemExit
 
     def generate_hub_file(self, shortLabel=None, longLabel=None, email=None):
 
@@ -137,3 +151,27 @@ maxHeightPixels 100:100:100\n
 
         # out of loop
         track_db.close()
+
+    def generate_groups_file(self,names,labels):
+        
+        # check lengths
+        if len(names) != len(labels):
+            print "Groups names must be same length as group labels"
+            raise SystemExit
+
+        # open the file
+        genomes_file = open(os.path.join(self.genome_dir,"genomes.txt"),"a+")
+
+        priority = 1
+        for name,label in zip(names,labels):
+            genomes_file.write('''\
+name {name}
+label {label}
+priority {priority}
+defaultIsClosed 0\n
+'''.format(name=name, label=label, priority=priority))
+            priority += 1
+
+        # close er up
+        genomes_file.close()
+
