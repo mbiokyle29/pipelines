@@ -3,6 +3,7 @@
 Kyle McChesney
 
 Ruffus pipeline for simple bowtie alignment
+Does not support paired end reads
 
 """
 from ruffus import *
