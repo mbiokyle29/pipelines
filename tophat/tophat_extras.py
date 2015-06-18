@@ -1,7 +1,5 @@
-import os, glob, re, subprocess
-
-# :)
-MILLION = float(1000000)
+import os, glob, re, subprocess, json
+from jsonschema import validate
 
 # not a ruffus command
 def check_default_args(cores,index,output, log):
@@ -52,3 +50,45 @@ def make_fastq_list(directory, log):
         raise SystemExit
 
     return fastqs
+
+# not a ruffus task
+def process_de_conf(file, log):
+
+    # make sure the file is there
+    if not os.path.isfile(file):
+        log.warn( "%s is not a valid file, exiting", file)
+        raise SystemExit 
+
+    # schema to validate against
+    de_conf_schema = {
+        "type": "object",
+        "properties": {
+            "negative-condition": {
+                "type":"object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "files": {"type": "array"}
+                }
+            }
+            "positve-condition": {
+                "type":"object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "files": {"type": "array"}
+                }
+            }
+        }
+    }
+    with open(file) as json_data:
+        json = json.load(json_data)
+        
+        # make sure it matches
+        try:
+            validate(json, de_conf_schema)
+
+        except ValidationError:
+            log.warn("%s is not valid DE conf json", json)
+            raise SystemExit
+
+        # if its good return it
+        return json

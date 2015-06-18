@@ -2,8 +2,7 @@
 """
 Kyle McChesney
 
-Ruffus pipeline for simple bowtie alignment
-Does not support paired end reads
+Ruffus pipeline for all things tophat
 
 """
 from ruffus import *
@@ -17,16 +16,21 @@ import re
 
 parser = cmdline.get_argparse(description='Given a directory of NON-paired end reads -- Align them with tophat and generate wigs')
 
-# Program arguments  -- Most go straight to bowtie
+# Program arguments
 parser.add_argument("--dir", help="Fullpath to the directory where the FASTQ reads are located", required=True)
 parser.add_argument("--cores", help="Number of cores to run bowtie on", default=10)
 parser.add_argument("--index", help="Fullpath to the bowtie2 index in: /full/file/path/basename form", default="/data/refs/hg19/hg19")
 parser.add_argument("--output", help="Fullpath to output directory", default="./")
 parser.add_argument("--size", help="Fullpath to size file", required=True)
 parser.add_argument("--gtf", help="Fullpath to gtf file", required=True)
+parser.add_argument("--paired", help="Indicates whether the reads in --dir are paired_end. MUST FOLLOW _1 _2 convention", default=False)
 
 # optional arguments to control turning on and off tasks
 parser.add_argument("--wig", help="Whether or not wig files should be generated", type=bool, default=False)
+parser.add_argument("--one-codex", help="Whether or not to upload each sample to one codex for metagenomic analysis", default=False)
+parser.add_argument("--de", help="Whether or not differential expression should be calculated", type=bool, default=False)
+parser.add_argument("--de-conf", help="fullpath to differential expresssion configuration file")
+
 
 # parse the args
 options = parser.parse_args()
@@ -36,10 +40,6 @@ logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO,)
 log = logging.getLogger(__name__)
 log.info("Starting Bowtie2 Run")
 
-# alignment stats file (kind of not pipelined)
-for parameter in ["dir","cores","index","output"]:
-    log.info("{}: {}".format(parameter,getattr(options,parameter)))
-
 # pre checking
 check_default_args(options.cores, options.index, options.output, log)
 input_files = make_fastq_list(options.dir, log)
@@ -47,15 +47,32 @@ input_files = make_fastq_list(options.dir, log)
 # need this for wig headers
 genome = os.path.splitext(os.path.basename(options.index))[0]
 
+@active_if(options.one_codex)
+@transform(input_files, suffix(".fastq"), ".fastq")
+def upload_to_one_codex(input_file, output_file):
 
-# tophat doesnt let you change basename of files
-# what the heck!
-@transform(input_files, formatter(), options.output+"{basename[0]}-res/accepted_hits.bam", options)
-def tophat_align(input_file, output_file, options):
-    
+    args = ["onecodex", "upload", input_file]
+
+    try:
+        output = subprocess.check_output(args, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError:
+        log.warn("uploading to One Codex failed")
+        raise SystemExit
+
+@active_if(options.paired)
+@collate(input_files, formatter("([^/]+)_[12].fastq$"), ["{path[0]}/{1[0]}_1.fastq", "{path[0]}/{1[0]}_2.fastq"],)
+def collate_files(input_files, output_files):
+    log.info("Collating paired fastq files: \n\t{} \n\t{}\n".format(input_files[0], input_files[1]))
+
+# paired alignment
+@active_if(options.paired)
+@transform(collate_files, formatter("([^/]+)_[12].fastq$"), options.output+"{1[0]}-tophat-results/accepted_hits.bam", options)
+def tophat_align_paired(input_files, output_file, options):
+
     # we cant to have tophat write results to output+filename
-    output = ''.join([ options.output, os.path.splitext(os.path.basename(input_file))[0], "-tophat-results"])
-    args = ["tophat2", "-G", options.gtf, "-p", str(options.cores), "-o", output, options.index, input_file]
+    output = os.path.dirname(output_file)
+    args = ["tophat2", "-G", options.gtf,"-p", str(options.cores), "-o", output, options.index, input_files[0], input_files[1]]
+
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
@@ -66,7 +83,27 @@ def tophat_align(input_file, output_file, options):
     log.info("tophat2 output:")
     log.info(output)
 
-@transform(tophat_align, suffix(".bam"),".sorted.bam")
+# unpaired alignment function
+@active_if(not options.paired)
+@transform(input_files, formatter(), options.output+"{basename[0]}-res/accepted_hits.bam", options)
+def tophat_align_unpaired(input_file, output_file, options):
+
+    # we cant to have tophat write results to output+filename
+    output = os.path.dirname(output_file)
+    args = ["tophat2", "-G", options.gtf,"-p", str(options.cores), "-o", output, options.index, input_file]
+
+    try:
+        output = subprocess.check_output(args, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError:
+        log.warn("tophat2 failed")
+        raise SystemExit
+
+    # print output
+    log.info("tophat2 output:")
+    log.info(output)
+
+# both the tophat functions can feed into here
+@transform([tophat_align_unpaired, tophat_align_paired], suffix(".bam"),".sorted.bam")
 def sort_bam(input_file, output_file):
     log.info("Sorting %s ", input_file)
 
@@ -83,6 +120,7 @@ def sort_bam(input_file, output_file):
 @active_if(options.wig)
 @transform(sort_bam, suffix(".sorted.bam"), ".bed", options.output)
 def bam_to_bed(input_file, output_file, output):
+
     log.info("Converting %s to a bed file", input_file)
     if subprocess.call("bamToBed -i {} > {}".format(input_file, output_file), shell=True):
         log.warn("bam to bed conversion of %s failed, exiting", input_file)
@@ -98,11 +136,7 @@ def bam_to_bed(input_file, output_file, output):
 def bed_to_cov(input_file, output_file,  size_file):
     log.info("Converting %s to a genome coverage file", input_file)
     
-    # check
-    base = os.path.splitext(os.path.basename(input_file))[0]
-    scale = mrms[base]
-
-    command = "genomeCoverageBed -d -i {} -g {} > {}".format(scale, input_file, size_file, output_file)
+    command = "genomeCoverageBed -d -i {} -g {} > {}".format( input_file, size_file, output_file)
     if subprocess.call(command, shell=True):
         log.warn("bed to coverage conversion of %s failed, exiting", input_file)
         raise SystemExit
@@ -140,6 +174,9 @@ def cov_to_wig(input_file, output_file, genome, output):
     file_name = os.path.basename(output_file)
     new_name = os.path.join(output, file_name)
     os.rename(output_file, new_name)
+
+@active_if(options.de)
+@merge()
 
 # run the pipeline
 cmdline.run(options)

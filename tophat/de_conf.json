@@ -1,0 +1,15 @@
+{
+    "negative-condition": {
+        "label": "VIRUS-negative",
+        "files": [
+
+        ]
+    },
+
+    "positive-condition": {
+        "label": "VIRUS-positive",
+        "files": [
+
+        ]
+    }
+}
