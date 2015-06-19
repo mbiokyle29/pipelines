@@ -102,7 +102,7 @@ def tophat_align_unpaired(input_file, output_file, options):
     log.info("tophat2 output:")
     log.info(output)
 
-@transform([tophat_align_unpaired, tophat_align_paired], formatter(), a )
+@transform([tophat_align_unpaired, tophat_align_paired], formatter(), os.path.join(options.output, re.sub(r"-res\/?$", "{subdir[0]"), ".bam") )
 
 # both the tophat functions can feed into here
 @transform([tophat_align_unpaired, tophat_align_paired], suffix(".bam"),".sorted.bam")
