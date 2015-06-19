@@ -6,7 +6,7 @@ Ruffus pipeline for all things tophat
 
 """
 from ruffus import *
-from tophat_extras import check_default_args, make_fastq_list
+from tophat_extras import check_default_args, make_fastq_list, process_de_conf
 import ruffus.cmdline as cmdline
 import subprocess
 import logging
@@ -43,8 +43,6 @@ log.info("Starting Bowtie2 Run")
 # pre checking
 check_default_args(options.cores, options.index, options.output, log)
 input_files = make_fastq_list(options.dir, log)
-
-# need this for wig headers
 genome = os.path.splitext(os.path.basename(options.index))[0]
 
 @active_if(options.one_codex)
@@ -103,6 +101,20 @@ def tophat_align_unpaired(input_file, output_file, options):
     log.info(output)
 
 @transform([tophat_align_unpaired, tophat_align_paired], formatter(), os.path.join(options.output, re.sub(r"-res\/?$", "{subdir[0]"), ".bam") )
+def rename_accepted_hits(input_file, output_file):
+
+    # we want to name this file with its original basename
+    # which luckily is stored in its path!
+    # output/basename-res/it
+    
+    # hack city
+    full_path = os.path.dirname(output_file)
+    res_dir = os.path.split(full_path)[1]
+    basename = re.sub(r"-res$","",res_dir)
+
+    new_name = os.path.join(fullpath, basename+".bam") 
+    os.rename()
+
 
 # both the tophat functions can feed into here
 @transform([tophat_align_unpaired, tophat_align_paired], suffix(".bam"),".sorted.bam")
@@ -178,7 +190,30 @@ def cov_to_wig(input_file, output_file, genome, output):
     os.rename(output_file, new_name)
 
 @active_if(options.de)
-@merge()
+@merge(sort_bam, os.path.join(options.output,"cuffdiff/"), options)
+def run_cuffdiff(input_files, output_file, options):
+    
+    # grab the conf
+    conf = process_de_conf(options.de_conf)
+
+    # make the output file
+    output_dir = os.path.join(options.output,"cuffdiff/")
+
+    # get the label
+    neg_label = conf.get('negative-condition').get('label')
+    pos_label = conf.get('positive-condition').get('label')
+    label_string = "{},{}".format(neg_label, pos_label)
+
+    neg_files = []
+    pos_files = []
+
+    # match the files in conf to the bams we have
+    for conf_file in conf.get('negative-condition').get('files'):
+        conf_basename = os.path.splitext(file)[0]
+        for bam_file in input_files:
+            bam_basename = os.path.splitext(bam_file)
+
+    args = ["cuffdiff", "-o", output_dir, "-L", label_string, "-p", options.cores, options.gtf, ]
 
 # run the pipeline
 cmdline.run(options)
