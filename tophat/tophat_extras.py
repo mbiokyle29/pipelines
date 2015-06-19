@@ -69,7 +69,7 @@ def process_de_conf(file, log):
                     "label": {"type": "string"},
                     "files": {"type": "array"}
                 }
-            }
+            },
             "positve-condition": {
                 "type":"object",
                 "properties": {
@@ -80,15 +80,15 @@ def process_de_conf(file, log):
         }
     }
     with open(file) as json_data:
-        json = json.load(json_data)
+        conf = json.load(json_data)
         
         # make sure it matches
         try:
-            validate(json, de_conf_schema)
+            validate(conf, de_conf_schema)
 
         except ValidationError:
-            log.warn("%s is not valid DE conf json", json)
+            log.warn("%s is not valid DE conf json", conf)
             raise SystemExit
 
         # if its good return it
-        return json
+        return conf

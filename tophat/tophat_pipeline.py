@@ -38,7 +38,7 @@ options = parser.parse_args()
 # logging
 logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO,)
 log = logging.getLogger(__name__)
-log.info("Starting Bowtie2 Run")
+log.info("Starting Tophat/DE Run")
 
 # pre checking
 check_default_args(options.cores, options.index, options.output, log)
@@ -83,7 +83,7 @@ def tophat_align_paired(input_files, output_file, options):
 
 # unpaired alignment function
 @active_if(not options.paired)
-@transform(input_files, formatter(), options.output+"{basename[0]}-res/accepted_hits.bam", options)
+@transform(input_files, formatter(), options.output+"{basename[0]}-tophat-results/accepted_hits.bam", options)
 def tophat_align_unpaired(input_file, output_file, options):
 
     # we cant to have tophat write results to output+filename
@@ -100,24 +100,19 @@ def tophat_align_unpaired(input_file, output_file, options):
     log.info("tophat2 output:")
     log.info(output)
 
-@transform([tophat_align_unpaired, tophat_align_paired], formatter(), os.path.join(options.output, re.sub(r"-res\/?$", "{subdir[0]"), ".bam") )
+# get rid of stupid accepted_hits.bam file
+@transform([tophat_align_unpaired, tophat_align_paired], 
+            formatter(r".*/([^/]+)-tophat-results/accepted_hits.bam$"), 
+            ''.join([options.output, "{1[0]}", ".bam"]) )
 def rename_accepted_hits(input_file, output_file):
 
-    # we want to name this file with its original basename
-    # which luckily is stored in its path!
-    # output/basename-res/it
-    
-    # hack city
-    full_path = os.path.dirname(output_file)
-    res_dir = os.path.split(full_path)[1]
-    basename = re.sub(r"-res$","",res_dir)
-
-    new_name = os.path.join(fullpath, basename+".bam") 
-    os.rename()
-
+    try:
+        os.rename(input_file, output_file)
+    except OSError:
+        log.warn("Renaming %s to %s failed", input_file, output_file)
 
 # both the tophat functions can feed into here
-@transform([tophat_align_unpaired, tophat_align_paired], suffix(".bam"),".sorted.bam")
+@transform(rename_accepted_hits, suffix(".bam"),".sorted.bam")
 def sort_bam(input_file, output_file):
     log.info("Sorting %s ", input_file)
 
@@ -194,26 +189,68 @@ def cov_to_wig(input_file, output_file, genome, output):
 def run_cuffdiff(input_files, output_file, options):
     
     # grab the conf
-    conf = process_de_conf(options.de_conf)
+    conf = process_de_conf(options.de_conf, log)
 
     # make the output file
     output_dir = os.path.join(options.output,"cuffdiff/")
 
     # get the label
-    neg_label = conf.get('negative-condition').get('label')
-    pos_label = conf.get('positive-condition').get('label')
+    neg_label = conf['negative-condition']['label']
+    pos_label = conf['positive-condition']['label']
     label_string = "{},{}".format(neg_label, pos_label)
 
     neg_files = []
     pos_files = []
 
     # match the files in conf to the bams we have
-    for conf_file in conf.get('negative-condition').get('files'):
-        conf_basename = os.path.splitext(file)[0]
-        for bam_file in input_files:
-            bam_basename = os.path.splitext(bam_file)
+    for conf_file in conf['negative-condition']['files']:
 
-    args = ["cuffdiff", "-o", output_dir, "-L", label_string, "-p", options.cores, options.gtf, ]
+        conf_basename = os.path.splitext(conf_file)[0]
+        # check the input files
+        for bam_file in input_files:
+            bam_basename = os.path.basename(bam_file).split(os.extsep)[0]
+            
+            # see if they match
+            if conf_basename == bam_basename:
+                log.info("%s matched %s in negative-condition", conf_file, bam_file)
+                neg_files.append(bam_file)
+
+                # remove it for optimization :) I think
+                input_files.remove(bam_file)
+
+     # match the files in conf to the bams we have
+    for conf_file in conf['positive-condition']['files']:
+        conf_basename = os.path.splitext(conf_file)[0]
+
+        # check the input files
+        for bam_file in input_files:
+            bam_basename = os.path.basename(bam_file).split(os.extsep)[0]
+
+            # see if they match
+            if conf_basename == bam_basename:
+                log.info("%s matched %s in positive-condition", conf_file, bam_file)
+                pos_files.append(bam_file)
+
+                # remove it for optimization :) I think
+                input_files.remove(bam_file)
+
+
+    # make sure both groups got something and that the inputfiles is emtpy
+    if len(neg_files) == 0 or len(pos_files) == 0 or len(input_files) != 0:
+        log.warn("Cuffdiff file specification error!")
+        raise SystemExit
+
+    # call it
+    args = ["cuffdiff", "-o", output_dir, "-L", label_string, "-p", options.cores, options.gtf, ','.join(neg_files), ','.join(pos_files)]
+    try:
+        output = subprocess.check_output(args, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError:
+        log.warn("Cuffdiff failed")
+        raise SystemExit
+
+    # print output
+    log.info("cuffdiff output:")
+    log.info(output)
 
 # run the pipeline
 cmdline.run(options)
