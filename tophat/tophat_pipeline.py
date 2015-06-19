@@ -5,14 +5,20 @@ Kyle McChesney
 Ruffus pipeline for all things tophat
 
 """
+
+# ruffus imports
 from ruffus import *
-from tophat_extras import check_default_args, make_fastq_list, process_de_conf
 import ruffus.cmdline as cmdline
-import subprocess
-import logging
-import os
-import pprint
-import re
+
+# custom functions
+from tophat_extras import check_default_args, make_fastq_list, process_de_conf
+
+# system imports
+import subprocess, logging, os, re
+
+# :) so i never have to touch excel
+import pandas as pd
+
 
 parser = cmdline.get_argparse(description='Given a directory of NON-paired end reads -- Align them with tophat and generate wigs')
 
@@ -185,7 +191,7 @@ def cov_to_wig(input_file, output_file, genome, output):
     os.rename(output_file, new_name)
 
 @active_if(options.de)
-@merge(sort_bam, os.path.join(options.output,"cuffdiff/"), options)
+@merge(sort_bam, os.path.join(options.output,"cuffdiff/gene_exp.diff",), options)
 def run_cuffdiff(input_files, output_file, options):
     
     # grab the conf
@@ -251,6 +257,30 @@ def run_cuffdiff(input_files, output_file, options):
     # print output
     log.info("cuffdiff output:")
     log.info(output)
+
+
+@active_if(options.de)
+@transform(run_cuffdiff, suffix(".diff"), ".xlsx", options)
+def write_excel_sheet(input_file, output_files, options):
+    
+    # best message ever
+    log.info("Writing gene expression results to spreadsheets")
+    keep_cols = ["test_id", "locus", "sample_1", "sample_2", "status", "value_1",
+                "value_2", "log2(fold_change)", "test_stat", "p_value", "q_value", "significant"]
+
+    # read it in
+    df = pd.read_table(input_file, sep="\t", usecols=keep_cols)
+
+    # sort sig to the top
+    df = df.sort(columns="significant", ascending=False, inplace=True, kind="heapsort")
+
+    # write the sucker to a file
+    writer = ExcelWriter(output_file)
+    df.to_excel(writer, "Sheet1")
+    writer.save()
+
+
+
 
 # run the pipeline
 cmdline.run(options)
