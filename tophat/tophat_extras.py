@@ -1,5 +1,8 @@
-import os, glob, re, subprocess, json
+import os, glob, re, subprocess, json, time
 from jsonschema import validate
+import smtplib
+from email.mime.text import MIMEText
+
 
 # not a ruffus command
 def check_default_args(cores,index,output, log):
@@ -92,3 +95,51 @@ def process_de_conf(file, log):
 
         # if its good return it
         return conf
+
+
+# not a ruffus task
+# send email
+# the plan is to report the specific error
+# and also append the the contents of the log for good measure
+def report_error(task, message, log):
+
+
+    # Create a text/plain message
+    email_body = []
+    email_body.append("Hello, Kyle\n")
+    email_body.append("{} task failed with the following error: ".format(task))
+    email_body.append(message)
+
+    # grab the log file name from the log
+    # we add the file handler first
+    # so its here
+    log_file = log.handlers[0].baseFilename
+    email_body.append("\n#######################################################")
+    email_body.append("#                PIPELINE LOG                         #")
+    email_body.append("#######################################################")
+    with open(log_file, "r") as log:
+        for line in log:
+            email_body.append(line.rstrip())
+
+    msg = MIMEText("\n".join(email_body))
+
+    # header stuff
+    # no one else cares but me!
+    root  = "root@alpha-helix.oncology.wisc.edu"
+    me = "kgmcchesney@wisc.edu"
+    subject = "Tophat pipeline failure report: {}".format(time.strftime("%d/%m/%Y"))
+    
+    msg['Subject'] = subject
+    msg['From'] = root
+    msg['To'] = me
+    
+    # Send the message via our own SMTP server, but don't include the
+    # envelope header.
+    s = smtplib.SMTP('localhost')
+    s.sendmail(root, [me], msg.as_string())
+    s.quit()
+
+
+
+def annotate_gene(gene):
+    return "ANOOTATED"+gene

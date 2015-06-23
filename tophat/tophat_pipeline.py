@@ -11,14 +11,21 @@ from ruffus import *
 import ruffus.cmdline as cmdline
 
 # custom functions
-from tophat_extras import check_default_args, make_fastq_list, process_de_conf
+from tophat_extras import *
 
 # system imports
-import subprocess, logging, os, re
+import subprocess, logging, os, re, time
 
 # :) so i never have to touch excel
 import pandas as pd
 
+# EMAIL
+import smtplib
+from email.MIMEMultipart import MIMEMultipart
+from email.MIMEBase import MIMEBase
+from email.MIMEText import MIMEText
+from email.Utils import COMMASPACE, formatdate
+from email import Encoders
 
 parser = cmdline.get_argparse(description='Given a directory of NON-paired end reads -- Align them with tophat and generate wigs')
 
@@ -37,13 +44,37 @@ parser.add_argument("--one-codex", help="Whether or not to upload each sample to
 parser.add_argument("--de", help="Whether or not differential expression should be calculated", type=bool, default=False)
 parser.add_argument("--de-conf", help="fullpath to differential expresssion configuration file")
 
+# reporting
+parser.add_argument("--emails", help="Emails to send DE results too", default="kgmcchesney@wisc.edu", nargs="+")
 
 # parse the args
 options = parser.parse_args()
 
-# logging
-logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO,)
+# package the emails into an array if just one
+if options.emails == "kgmcchesney@wisc.edu":
+    options.emails = [options.emails]
+
+# Kenny loggins
 log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+log_formatter = logging.Formatter('%(asctime)s {%(levelname)s}: %(message)s')
+
+# file log
+time_stamp = str(time.time()).replace(".","")
+log_file = options.log_file if options.log_file else os.path.join(options.output,"{}.{}.{}".format("tophat_pipeline",time_stamp,"log"))
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(log_formatter)
+
+# console log
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.INFO)
+stream_handler.setFormatter(log_formatter)
+
+# set it all up
+log.addHandler(file_handler)
+log.addHandler(stream_handler)
+
 log.info("Starting Tophat/DE Run")
 
 # pre checking
@@ -60,11 +91,11 @@ def upload_to_one_codex(input_file, output_file):
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
-        log.warn("uploading to One Codex failed")
+        report_error("One Codex","uploading to One Codex failed \n{}".format(output), log)
         raise SystemExit
 
 @active_if(options.paired)
-@collate(input_files, formatter("([^/]+)_[12].fastq$"), ["{path[0]}/{1[0]}_1.fastq", "{path[0]}/{1[0]}_2.fastq"],)
+@collate(input_files, formatter("([^/]+)_[12].fastq$"), ["{path[0]}/{1[0]}_1.fastq", "{path[0]}/{1[0]}_2.fastq"])
 def collate_files(input_files, output_files):
     log.info("Collating paired fastq files: \n\t{} \n\t{}\n".format(input_files[0], input_files[1]))
 
@@ -80,7 +111,7 @@ def tophat_align_paired(input_files, output_file, options):
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
-        log.warn("tophat2 failed")
+        report_error("tophat_paired","tophat2 paired run failed:\n{}".format(output), log)
         raise SystemExit
 
     # print output
@@ -99,7 +130,8 @@ def tophat_align_unpaired(input_file, output_file, options):
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
-        log.warn("tophat2 failed")
+        log.warn(output)
+        report_error("tophat_unpaird","tophat2 unpaired failed: \n{}".format(output), log)
         raise SystemExit
 
     # print output
@@ -115,7 +147,7 @@ def rename_accepted_hits(input_file, output_file):
     try:
         os.rename(input_file, output_file)
     except OSError:
-        log.warn("Renaming %s to %s failed", input_file, output_file)
+        report_error("rename_accepted_hits","Renaming {} to {} failed".format(input_file, output_file),log)
 
 # both the tophat functions can feed into here
 @transform(rename_accepted_hits, suffix(".bam"),".sorted.bam")
@@ -127,6 +159,7 @@ def sort_bam(input_file, output_file):
 
     if subprocess.call(["samtools-rs", "rocksort", "-@", "8", "-m", "16G", input_file, output_file]):
         log.warn("bam sorting %s failed, exiting", input_file)
+        report_error("sort_bam","bam sorting {} failed".format(input_file), log)
         raise SystemExit
     
     log.info("Deleting old file %s", input_file)
@@ -139,6 +172,7 @@ def bam_to_bed(input_file, output_file, output):
     log.info("Converting %s to a bed file", input_file)
     if subprocess.call("bamToBed -i {} > {}".format(input_file, output_file), shell=True):
         log.warn("bam to bed conversion of %s failed, exiting", input_file)
+        report_error("bam_to_bed","bam to bed conversion of {} failed".format(input_file), log)
         raise SystemExit
 
     # now we can move sorted bam to output
@@ -154,6 +188,7 @@ def bed_to_cov(input_file, output_file,  size_file):
     command = "genomeCoverageBed -d -i {} -g {} > {}".format( input_file, size_file, output_file)
     if subprocess.call(command, shell=True):
         log.warn("bed to coverage conversion of %s failed, exiting", input_file)
+        report_error("bed_to_cov","bed to cov conversion of {} failed".format(input_file), log)
         raise SystemExit
 
     log.info("Deleting old file %s", input_file)
@@ -244,6 +279,7 @@ def run_cuffdiff(input_files, output_file, options):
     # make sure both groups got something and that the inputfiles is emtpy
     if len(neg_files) == 0 or len(pos_files) == 0 or len(input_files) != 0:
         log.warn("Cuffdiff file specification error!")
+        report_error("cuffdiff", "Cuffdiff file specification error!", log)
         raise SystemExit
 
     # call it
@@ -251,17 +287,17 @@ def run_cuffdiff(input_files, output_file, options):
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
-        log.warn("Cuffdiff failed")
+        log.warn("Cuffdiff failed: %s", output)
+        report_error("cuffdiff","Cuffdiff failed: \n{}".format(output), log)
         raise SystemExit
 
     # print output
     log.info("cuffdiff output:")
     log.info(output)
 
-
 @active_if(options.de)
 @transform(run_cuffdiff, suffix(".diff"), ".xlsx", options)
-def write_excel_sheet(input_file, output_files, options):
+def write_excel_sheet(input_file, output_file, options):
     
     # best message ever
     log.info("Writing gene expression results to spreadsheets")
@@ -271,16 +307,66 @@ def write_excel_sheet(input_file, output_files, options):
     # read it in
     df = pd.read_table(input_file, sep="\t", usecols=keep_cols)
 
+    # change the na,e of test_id
+    keep_cols[0] = "gene_name"
+    df.columns = keep_cols
+
+    # annotate the genes
+    df['gene_annotation'] = df['gene_name'].apply(annotate_gene)
+
     # sort sig to the top
-    df = df.sort(columns="significant", ascending=False, inplace=True, kind="heapsort")
+    df.sort(columns="significant", ascending=False, inplace=True, kind="heapsort")
 
     # write the sucker to a file
-    writer = ExcelWriter(output_file)
-    df.to_excel(writer, "Sheet1")
+    writer = pd.ExcelWriter(output_file)
+    df.to_excel(writer, sheet_name="Sheet1", index=False)
     writer.save()
 
+    log.info("results written to: %s", output_file)
 
+@active_if(options.de)
+@transform(write_excel_sheet, suffix(".xlsx"), ".email", options, input_files)
+def report_success(input_file, output_file, options, inputfiles):
+    
+    log.info("Sending email report")
+    
+    # Create a text/plain message
+    email_body = []
+    email_body.append("Differential expression pipeline results:\n")
+    email_body.append("The following fastq files were used:")
+    
+    for file in input_files:
+        email_body.append("- {}".format(file))
 
+    email_body.append("\nThe results (xlsx spreadsheet) and pipeline log are attatched")
+    email_body.append("Please direct any questions to kgmcchesney@wisc.edu")
+
+    # msg object
+    msg = MIMEMultipart()
+
+    # header stuff
+    # no one else cares but me!
+    root  = "root@alpha-helix.oncology.wisc.edu"
+    subject = "Tophat DE pipeline Success report: {}".format(time.strftime("%d/%m/%Y"))
+
+    msg['Subject'] = subject
+    msg['From'] = root
+    msg['To'] = COMMASPACE.join(options.emails)
+    msg.attach( MIMEText("\n".join(email_body)) )
+
+    # attatch the files
+    for file in [input_file, log.handlers[0].baseFilename]:
+        part = MIMEBase('application', "octet-stream")
+        part.set_payload( open(file,"rb").read() )
+        Encoders.encode_base64(part)
+        part.add_header('Content-Disposition', 'attachment; filename="%s"' % os.path.basename(file))
+        msg.attach(part)
+    
+    # Send the message via our own SMTP server, but don't include the
+    # envelope header.
+    s = smtplib.SMTP('localhost')
+    s.sendmail(root, options.emails, msg.as_string())
+    s.quit()
 
 # run the pipeline
 cmdline.run(options)
