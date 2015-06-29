@@ -2,16 +2,14 @@
     "negative-condition": {
         "label": "VIRUS-negative",
         "files": [
-            "A_1.fastq",
-            "A_2.fastq"
+            "small.fastq"
         ]
     },
 
     "positive-condition": {
         "label": "VIRUS-positive",
         "files": [
-            "B_1.fastq",
-            "B_2.fastq"
+            "small-1.fastq"
         ]
     }
 }
