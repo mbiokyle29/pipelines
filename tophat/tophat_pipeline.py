@@ -94,22 +94,54 @@ extras.check_default_args(options.cores, options.index, options.output)
 input_files = extras.make_fastq_list(options.dir)
 genome = os.path.splitext(os.path.basename(options.index))[0]
 
+@active_if(options.paired)
+@collate(input_files, formatter("([^/]+)_[12].fastq$"), ["{path[0]}/{1[0]}_1.fastq", "{path[0]}/{1[0]}_2.fastq"])
+def collate_files(input_files, output_files):
+    log.info("Collating paired fastq files: \n\t{} \n\t{}\n".format(input_files[0], input_files[1]))
+
 @active_if(options.one_codex)
+@active_if(options.paired)
+@transform(collate_files, formatter("([^/]+)_[12].fastq$"), options.output+"{1[0]}.assembled.fastq", extras)
+def pear_fastq_files(input_files, output_file, extras):
+
+    log.info("Starting pear run on %s and %s", input_files[0], input_files[1])
+
+    output_file = re.sub(r"\.assembled\.fastq", "", output_file)
+    args = ["pear", "-f", input_files[0], "-r", input_files[1], "-o", output_file]
+
+    try:
+        output = subprocess.check_output(args, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError:
+        extras.report_error("PEAR","Merging paried files with PEAR failed: \n{}".format(output))
+        raise SystemExit
+
+@active_if(options.one_codex)
+@active_if(options.paired)
+@transform(pear_fastq_files, suffix(".fastq"), ".fastq", extras)
+def upload_paired_to_one_codex(input_file, output_file, extras):
+
+    args = ["onecodex", "upload", input_file]
+    log.info("uploading %s to One Codex", input_file)
+
+    try:
+        output = subprocess.check_output(args, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError:
+        extras.report_error("One Codex","uploading peared files to One Codex failed \n{}".format(output))
+        raise SystemExit
+
+@active_if(options.one_codex)
+@active_if(not options.paired)
 @transform(input_files, suffix(".fastq"), ".fastq", extras)
 def upload_to_one_codex(input_file, output_file, extras):
 
     args = ["onecodex", "upload", input_file]
+    log.info("uploading %s to One Codex", input_file)
 
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
         extras.report_error("One Codex","uploading to One Codex failed \n{}".format(output))
         raise SystemExit
-
-@active_if(options.paired)
-@collate(input_files, formatter("([^/]+)_[12].fastq$"), ["{path[0]}/{1[0]}_1.fastq", "{path[0]}/{1[0]}_2.fastq"])
-def collate_files(input_files, output_files):
-    log.info("Collating paired fastq files: \n\t{} \n\t{}\n".format(input_files[0], input_files[1]))
 
 # paired alignment
 @active_if(options.paired)

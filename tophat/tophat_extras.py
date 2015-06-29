@@ -171,7 +171,14 @@ class TophatExtras():
 
         # open up the DB
         name = os.path.splitext(os.path.basename(tsv))[0]
-        self.conn = sqlite3.connect("./{}_annotations.sqlite".format(name))
+        db_file = "./{}_annotations.sqlite".format(name)
+
+        if os.path.isfile(db_file):
+            self.log.warn("%s db file already exists, using that", db_file)
+            self.conn = sqlite3.connect(db_file)
+            return
+
+        self.conn = sqlite3.connect(db_file)
 
         genes = []
         with open(tsv, "r") as data:
