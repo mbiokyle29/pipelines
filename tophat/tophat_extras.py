@@ -61,6 +61,20 @@ class TophatExtras():
         return fastqs
 
     # not a ruffus task
+    def make_bam_list(self, directory):
+
+        # make sure the dir exists
+        if not os.path.isdir(directory):
+            self.log.warn( "%s is not a valid dir, exiting", directory)
+            raise SystemExit 
+
+        blob = os.path.join(directory, "*.bam")
+        bams = [os.path.abspath(bam) for bam in glob.glob(blob)]
+
+        return bams
+
+
+    # not a ruffus task
     def process_de_conf(self, file):
 
         # make sure the file is there
