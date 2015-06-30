@@ -13,6 +13,7 @@ import logging
 import os
 import pprint
 import re
+import time
 
 parser = cmdline.get_argparse(description='Given a directory of NON-paired end reads -- Align them with bowtie')
 
@@ -21,7 +22,7 @@ parser.add_argument("--dir", help="Fullpath to the directory where the FASTQ rea
 parser.add_argument("--cores", help="Number of cores to run bowtie on", default=10)
 parser.add_argument("--index", help="Fullpath to the bowtie2 index in: /full/file/path/basename form", default="/data/refs/hg19/hg19")
 parser.add_argument("--output", help="Fullpath to output directory", default="./")
-parser.add_argument("--size", help="Fullpath to size file", required=True)
+parser.add_argument("--size", help="Fullpath to size file")
 
 # optional arguments to control turning on and off tasks
 parser.add_argument("--wig", help="Whether or not wig files should be generated", type=bool, default=False)
@@ -29,10 +30,27 @@ parser.add_argument("--wig", help="Whether or not wig files should be generated"
 # parse the args
 options = parser.parse_args()
 
-# logging
-logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO,)
+# Kenny loggins
 log = logging.getLogger(__name__)
-log.info("Starting Bowtie2 Run")
+log.setLevel(logging.INFO)
+log_formatter = logging.Formatter('%(asctime)s {%(levelname)s}: %(message)s')
+
+# file log
+time_stamp = str(time.time()).replace(".","")
+log_file = options.log_file if options.log_file else os.path.join(options.output,"{}.{}.{}".format("bowtie_pipeline",time_stamp,"log"))
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(log_formatter)
+
+# console log
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.INFO)
+stream_handler.setFormatter(log_formatter)
+
+# set it all up
+log.addHandler(file_handler)
+log.addHandler(stream_handler)
+log.info("Starting Bowtie Run")
 
 # alignment stats file (kind of not pipelined)
 for parameter in ["dir","cores","index","output"]:
@@ -44,7 +62,7 @@ input_files = make_fastq_list(options.dir, log)
 
 # storing MRM array
 mrm = {}
-stats_file = os.path.join(options.output, "bowtie-pipeline.stats")
+stats_file = os.path.join(options.output, "bowtie-pipeline-{}.stats".format(time_stamp))
 
 # need this for wig headers
 genome = os.path.splitext(os.path.basename(options.index))[0]
