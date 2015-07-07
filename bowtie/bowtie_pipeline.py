@@ -6,7 +6,7 @@ Ruffus pipeline for simple bowtie alignment
 
 """
 from ruffus import *
-from bowtie_extras import check_default_args, record_bowtie_output, make_fastq_list
+from bowtie_extras import BowtieExtras
 import ruffus.cmdline as cmdline
 import subprocess
 import logging
@@ -52,23 +52,24 @@ log.addHandler(file_handler)
 log.addHandler(stream_handler)
 log.info("Starting Bowtie Run")
 
+extras = BowtieExtras(log)
+
 # alignment stats file (kind of not pipelined)
 for parameter in ["dir","cores","index","output"]:
     log.info("{}: {}".format(parameter,getattr(options,parameter)))
 
 # pre checking
-check_default_args(options.cores, options.index, options.output, log)
-input_files = make_fastq_list(options.dir, log)
+extras.check_default_args(options.cores, options.index, options.output)
+input_files = extras.make_fastq_list(options.dir)
 
 # storing MRM array
-mrm = {}
 stats_file = os.path.join(options.output, "bowtie-pipeline-{}.stats".format(time_stamp))
 
 # need this for wig headers
 genome = os.path.splitext(os.path.basename(options.index))[0]
 
-@transform(input_files, suffix(".fastq"), ".sam", options, stats_file)
-def align_with_bowtie(input_file, output_file, options, stats):
+@transform(input_files, suffix(".fastq"), ".sam", options, stats_file, extras)
+def align_with_bowtie(input_file, output_file, options, stats_file, extras):
     log.info("Running bowtie2 on %s", input_file)
     
     # use poen explicitly to cpature STDERR, check still
@@ -84,9 +85,7 @@ def align_with_bowtie(input_file, output_file, options, stats):
     log.info(output)
 
     # pass along to be saved
-    mrms = record_bowtie_output(output, input_file, stats_file, log)
-    base = os.path.splitext(os.path.basename(input_file))[0]
-    mrm[base] = mrms
+    extras.record_bowtie_output(output, input_file, stats_file)
 
 #
 @transform(align_with_bowtie, suffix(".sam"),".bam")
@@ -129,15 +128,16 @@ def bam_to_bed(input_file, output_file, output):
     os.rename(input_file, new_name)
 
 @active_if(options.wig)
-@transform(bam_to_bed, suffix(".bed"), ".cov", mrm, options.size)
-def bed_to_cov(input_file, output_file, mrms, size_file):
+@transform(bam_to_bed, suffix(".bed"), ".cov", options.size, extras)
+def bed_to_cov(input_file, output_file, size_file, extras):
     log.info("Converting %s to a genome coverage file", input_file)
     
     # check
     base = os.path.splitext(os.path.basename(input_file))[0]
-    scale = mrms[base]
+    mill_reads = extras.get_mill_reads(base)
+    scale = 1 / mill_reads
 
-    command = "genomeCoverageBed -scale {} -d -i {} -g {} > {}".format(scale, input_file, size_file, output_file)
+    command = "genomeCoverageBed -scale {} -d -i {} -g {} > {}".format(str(scale), input_file, size_file, output_file)
     if subprocess.call(command, shell=True):
         log.warn("bed to coverage conversion of %s failed, exiting", input_file)
         raise SystemExit
