@@ -63,7 +63,7 @@ extras.check_default_args(options.cores, options.index, options.output)
 input_files = extras.make_fastq_list(options.dir)
 
 # storing MRM array
-stats_file = os.path.join(options.output, "bowtie-pipeline-{}.stats".format(time_stamp))
+stats_file = os.path.join(options.output, "bowtieReadCounts-{}.stats".format(time_stamp))
 
 # need this for wig headers
 genome = os.path.splitext(os.path.basename(options.index))[0]
@@ -128,53 +128,74 @@ def bam_to_bed(input_file, output_file, output):
     os.rename(input_file, new_name)
 
 @active_if(options.wig)
-@transform(bam_to_bed, suffix(".bed"), ".cov", options.size, extras)
-def bed_to_cov(input_file, output_file, size_file, extras):
+@transform(bam_to_bed, suffix(".bed"), ".bg", options.size, extras)
+def bed_to_bg(input_file, output_file,  size_file, extras):
     log.info("Converting %s to a genome coverage file", input_file)
     
-    # check
     base = os.path.splitext(os.path.basename(input_file))[0]
     mill_reads = extras.get_mill_reads(base)
     scale = 1 / mill_reads
 
-    command = "genomeCoverageBed -scale {} -d -i {} -g {} > {}".format(str(scale), input_file, size_file, output_file)
+    command = "genomeCoverageBed -scale {} -bg -split -i {} -g {} > {}".format(scale, input_file, size_file, output_file)
     if subprocess.call(command, shell=True):
         log.warn("bed to coverage conversion of %s failed, exiting", input_file)
+        extras.report_error("bed_to_bg","bed to bg conversion of {} failed".format(input_file))
         raise SystemExit
 
     log.info("Deleting old file %s", input_file)
     os.unlink(input_file)
 
 @active_if(options.wig)
-@transform(bed_to_cov, suffix(".cov"), ".wig", genome, options.output)
-def cov_to_wig(input_file, output_file, genome, output):
-    log.info("Creating wig file from coverage bed %s", input_file)
-
-    output_stream = open(output_file,"w+")
-
-    # write the header
-    base = os.path.splitext(os.path.basename(input_file))[0]
-    desc = "{} aligned to {} with bowtie ruffus pipeline".format(base, genome)
-    header = "track type=wiggle_0 name=\"{}\" description=\"{}\"\n".format(base,desc)
-    track = "fixedStep chrom={} start=1 step=1\n".format(genome)
-
-    output_stream.write(header)
-    output_stream.write(track)
-
-    with open(input_file,"r") as input:
-        for line in input:
-            output_stream.write(line.split("\t")[2])
-
-    input.close()
-    output_stream.close()
+@transform(bed_to_bg, formatter(), options.output+"{basename[0]}.bw", options.size, options.output)
+def bg_to_bw(input_file, output_file, size_file, output):
+    log.info("Creating bigwig file from bg:  %s", input_file)
+    command = "bedGraphToBigWig {} {} {}".format( input_file, size_file, output_file)
+    
+    if subprocess.call(command, shell=True):
+        log.warn("bg to bw conversion of %s failed, exiting", input_file)
+        extras.report_error("bg_to_bw","bg to bw conversion of {} failed".format(input_file))
+        raise SystemExit
 
     log.info("Deleting old file %s", input_file)
     os.unlink(input_file)
 
-    # move the wig
-    file_name = os.path.basename(output_file)
-    new_name = os.path.join(output, file_name)
-    os.rename(output_file, new_name)
 
-# run the pipeline
+# call out to external bwtools here
+@active_if(options.wig)
+@merge(bg_to_bw, os.path.join(options.output,"bigWigStats-"+time_stamp+".out"))
+def bw_stats(input_files, output_file):
+        
+    # we are going to call bwtool summary and bwtool distribution
+    # have to explicitly send stdout stuff like that
+    # what a program
+    summary = "bwtool summary 10000 -header -with-sum {} /dev/stdout"
+    dist    = "bwtool distribution {} /dev/stdout"
+    
+
+    for input_file in input_files:
+        log.info("Running bigwig stats on {}".format(input_file))
+        with open(output_file, "a+") as stats:
+            for command in [summary, dist]:
+                
+                    try:
+                        output = subprocess.check_output(command.format(os.path.abspath(input_file)).split())
+                        if command.startswith("bwtool summary"):
+                            stats.write("#### bwtool summary for {}\n".format(input_file))
+                            stats.write(output)
+                            stats.write("####\n")
+                        
+                        # filter zeros out
+                        else:
+                            output = output.rstrip()
+                            output_clean = [line for line in output.split("\n") if line.split('\t')[1] != '0']
+                            stats.write("#### bwtool distribution for {}\n".format(input_file))
+                            stats.write("depth\tcount\n")
+                            stats.write("\n".join(output_clean))
+                            stats.write("\n####\n")
+
+                    except subprocess.CalledProcessError:
+                        log.warn("{} failed running on {}".format(command, input_file))
+                        raise SystemExit
+            stats.write("\n\n")
+# run the pipelined
 cmdline.run(options)

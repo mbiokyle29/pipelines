@@ -39,7 +39,7 @@ parser.add_argument("--gtf", help="Fullpath to gtf file", required=True)
 parser.add_argument("--paired", help="Indicates whether the reads in --dir are paired_end. MUST FOLLOW _1 _2 convention", default=False)
 
 # optional arguments to control turning on and off tasks
-parser.add_argument("--wig", help="Whether or not wig files should be generated", type=bool, default=False)
+parser.add_argument("--bw", help="Whether or not big wig files should be generated", type=bool, default=False)
 parser.add_argument("--one-codex", help="Whether or not to upload each sample to one codex for metagenomic analysis", default=False)
 parser.add_argument("--de", help="Whether or not differential expression should be calculated", type=bool, default=False)
 parser.add_argument("--de-conf", help="fullpath to differential expresssion configuration file")
@@ -57,7 +57,7 @@ if options.emails == "kgmcchesney@wisc.edu":
     options.emails = [options.emails]
 
 # Kenny loggins
-log = logging.getLogger(__name__)
+log, logger_mutex = cmdline.setup_logging(__name__)
 log.setLevel(logging.INFO)
 log_formatter = logging.Formatter('%(asctime)s {%(levelname)s}: %(message)s')
 
@@ -209,7 +209,7 @@ def sort_bam(input_file, output_file, extras):
     log.info("Deleting old file %s", input_file)
     os.unlink(input_file)
 
-@active_if(options.wig)
+@active_if(options.bw)
 @transform(sort_bam, suffix(".sorted.bam"), ".bed", options.output, extras)
 def bam_to_bed(input_file, output_file, output, extras):
 
@@ -224,50 +224,33 @@ def bam_to_bed(input_file, output_file, output, extras):
     new_name = os.path.join(output, file_name)
     os.rename(input_file, new_name)
 
-@active_if(options.wig)
-@transform(bam_to_bed, suffix(".bed"), ".cov", options.size, extras)
-def bed_to_cov(input_file, output_file,  size_file, extras):
+@active_if(options.bw)
+@transform(bam_to_bed, suffix(".bed"), ".bg", options.size, extras)
+def bed_to_bg(input_file, output_file,  size_file, extras):
     log.info("Converting %s to a genome coverage file", input_file)
     
-    command = "genomeCoverageBed -d -i {} -g {} > {}".format( input_file, size_file, output_file)
+    command = "genomeCoverageBed -bg -split -i {} -g {} > {}".format( input_file, size_file, output_file)
     if subprocess.call(command, shell=True):
         log.warn("bed to coverage conversion of %s failed, exiting", input_file)
-        extras.report_error("bed_to_cov","bed to cov conversion of {} failed".format(input_file))
+        extras.report_error("bed_to_bg","bed to bg conversion of {} failed".format(input_file))
         raise SystemExit
 
     log.info("Deleting old file %s", input_file)
     os.unlink(input_file)
 
-@active_if(options.wig)
-@transform(bed_to_cov, suffix(".cov"), ".wig", genome, options.output)
-def cov_to_wig(input_file, output_file, genome, output):
-    log.info("Creating wig file from coverage bed %s", input_file)
-
-    output_stream = open(output_file,"w+")
-
-    # write the header
-    base = os.path.splitext(os.path.basename(input_file))[0]
-    desc = "{} aligned to {} with bowtie ruffus pipeline".format(base, genome)
-    header = "track type=wiggle_0 name=\"{}\" description=\"{}\"\n".format(base,desc)
-    track = "fixedStep chrom={} start=1 step=1\n".format(genome)
-
-    output_stream.write(header)
-    output_stream.write(track)
-
-    with open(input_file,"r") as input:
-        for line in input:
-            output_stream.write(line.split("\t")[2])
-
-    input.close()
-    output_stream.close()
+@active_if(options.bw)
+@transform(bed_to_bg, suffix(".bg"), ".bw", genome, options.output)
+def bg_to_bw(input_file, output_file, genome, output):
+    log.info("Creating bigwig file from bg:  %s", input_file)
+    command = "bedGraphToBigWig {} {} {}".format( input_file, size_file, output_filet)
+    
+    if subprocess.call(command, shell=True):
+        log.warn("bg to bw conversion of %s failed, exiting", input_file)
+        extras.report_error("bg_to_bw","bg to bw conversion of {} failed".format(input_file))
+        raise SystemExit
 
     log.info("Deleting old file %s", input_file)
     os.unlink(input_file)
-
-    # move the wig
-    file_name = os.path.basename(output_file)
-    new_name = os.path.join(output, file_name)
-    os.rename(output_file, new_name)
 
 @active_if(options.de)
 @merge(sort_bam, os.path.join(options.output,"cuffdiff/gene_exp.diff",), options, extras)
