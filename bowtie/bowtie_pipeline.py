@@ -107,7 +107,7 @@ def sort_bam(input_file, output_file):
     # hacky
     output_file = re.sub(r"\.bam", "", output_file)
 
-    if subprocess.call(["samtools-rs", "rocksort", "-@", "8", "-m", "16G", input_file, output_file]):
+    if subprocess.call(["samtools-rs", "rocksort", "-@", "8", "-m", "2G", input_file, output_file]):
         log.warn("bam sorting %s failed, exiting", input_file)
         raise SystemExit
     
