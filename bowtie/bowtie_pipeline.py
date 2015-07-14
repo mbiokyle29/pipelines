@@ -15,6 +15,14 @@ import pprint
 import re
 import time
 
+# EMAIL
+import smtplib
+from email.MIMEMultipart import MIMEMultipart
+from email.MIMEBase import MIMEBase
+from email.MIMEText import MIMEText
+from email.Utils import COMMASPACE, formatdate
+from email import Encoders
+
 parser = cmdline.get_argparse(description='Given a directory of NON-paired end reads -- Align them with bowtie')
 
 # Program arguments  -- Most go straight to bowtie
@@ -26,6 +34,7 @@ parser.add_argument("--size", help="Fullpath to size file")
 
 # optional arguments to control turning on and off tasks
 parser.add_argument("--wig", help="Whether or not wig files should be generated", type=bool, default=False)
+parser.add_argument("--bowtie", help="Whether to use bowtie one instead of two", type=bool, default=False)
 
 # parse the args
 options = parser.parse_args()
@@ -70,14 +79,25 @@ genome = os.path.splitext(os.path.basename(options.index))[0]
 
 @transform(input_files, suffix(".fastq"), ".sam", options, stats_file, extras)
 def align_with_bowtie(input_file, output_file, options, stats_file, extras):
-    log.info("Running bowtie2 on %s", input_file)
     
-    # use poen explicitly to cpature STDERR, check still
-    args = ["bowtie2", "-t", "--no-unal", "-p", str(options.cores), "-x", options.index, input_file, "-S", output_file]
+    args = None
+
+    if options.bowtie:
+        log.info("running bowtie ONE on %s", input_file)
+        args = ["bowtie", "-t", "-p", "4", "-q", "-v", "2", "-a", "--best", "--strata", "-m", "1", "--sam"]
+        args.append([options.index, input_file, output_file])
+    
+    else:
+        log.info("Running bowtie2 on %s", input_file)
+        # use popen explicitly to cpature STDERR, check still
+        args = ["bowtie2", "-t", "--no-unal", "-p", str(options.cores), "-x", options.index, input_file, "-S", output_file]
+
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
         log.warn("Bowtie failed")
+        extras.report_error("bowtie2", "Bowtie2 has failed")
+        log.info(output)
         raise SystemExit
 
     # print output
@@ -85,7 +105,7 @@ def align_with_bowtie(input_file, output_file, options, stats_file, extras):
     log.info(output)
 
     # pass along to be saved
-    extras.record_bowtie_output(output, input_file, stats_file)
+    extras.record_bowtie_output(output, input_file, stats_file, options.bowtie)
 
 #
 @transform(align_with_bowtie, suffix(".sam"),".bam")
@@ -94,6 +114,7 @@ def sam_to_bam(input_file, output_file):
     log.info("Converting %s to bam", input_file)
     if subprocess.call(["samtools", "view", "-S", "-b", "-o", output_file, input_file]):
         log.warn("sam to bam convertion of %s failed, exiting", input_file)
+        extras.report_error("samtools", "samtools has failed")
         raise SystemExit
 
     # clean up
@@ -109,6 +130,7 @@ def sort_bam(input_file, output_file):
 
     if subprocess.call(["samtools-rs", "rocksort", "-@", "8", "-m", "2G", input_file, output_file]):
         log.warn("bam sorting %s failed, exiting", input_file)
+        extras.report_error("samtools-rs", "samtools-rs has failed")
         raise SystemExit
     
     log.info("Deleting old file %s", input_file)
@@ -120,6 +142,7 @@ def bam_to_bed(input_file, output_file, output):
     log.info("Converting %s to a bed file", input_file)
     if subprocess.call("bamToBed -i {} > {}".format(input_file, output_file), shell=True):
         log.warn("bam to bed conversion of %s failed, exiting", input_file)
+        extras.report_error("bamToBed", "bamToBed has failed")
         raise SystemExit
 
     # now we can move sorted bam to output
@@ -195,7 +218,9 @@ def bw_stats(input_files, output_file):
 
                     except subprocess.CalledProcessError:
                         log.warn("{} failed running on {}".format(command, input_file))
+                        extras.report_error("bwtool", "bwtools has failed for {}".format(input_file))
                         raise SystemExit
             stats.write("\n\n")
+
 # run the pipelined
 cmdline.run(options)
