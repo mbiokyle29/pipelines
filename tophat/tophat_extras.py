@@ -103,7 +103,12 @@ class TophatExtras():
             }
         }
         with open(file) as json_data:
-            conf = json.load(json_data)
+            try:
+                conf = json.load(json_data)
+            except ValueError:
+                self.log.warn("%s is not valid json", json_data)
+                self.report_error("json.load", "Invalid JSON data")
+                raise SystemExit
             
             # make sure it matches
             try:
@@ -176,7 +181,7 @@ class TophatExtras():
         else:
             return "N/A"
 
-    def make_annotation_db(self, tsv):
+    def make_annotation_db(self, tsv, stamp, output):
 
         # check it exists, read it and make the db
         if not os.path.isfile(tsv):
@@ -185,14 +190,14 @@ class TophatExtras():
 
         # open up the DB
         name = os.path.splitext(os.path.basename(tsv))[0]
-        db_file = "./{}_annotations.sqlite".format(name)
+        db_file = "{}/{}-{}_annotations.sqlite".format(output,name,stamp)
 
-        if os.path.isfile(db_file):
-            self.log.warn("%s db file already exists, using that", db_file)
-            self.conn = sqlite3.connect(db_file)
-            return
+        #if os.path.isfile(db_file):
+        #    self.log.warn("%s db file already exists, using that", db_file)
+        #    self.conn = sqlite3.connect(db_file)
+        #    return
 
-        self.conn = sqlite3.connect(db_file)
+        self.conn = sqlite3.connect(db_file, check_same_thread=False)
 
         genes = []
         with open(tsv, "r") as data:

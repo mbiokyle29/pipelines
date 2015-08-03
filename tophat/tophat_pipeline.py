@@ -57,7 +57,7 @@ if options.emails == "kgmcchesney@wisc.edu":
     options.emails = [options.emails]
 
 # Kenny loggins
-log, logger_mutex = cmdline.setup_logging(__name__)
+log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 log_formatter = logging.Formatter('%(asctime)s {%(levelname)s}: %(message)s')
 
@@ -93,6 +93,13 @@ elif options.annotation_db:
 extras.check_default_args(options.cores, options.index, options.output)
 input_files = extras.make_fastq_list(options.dir)
 genome = os.path.splitext(os.path.basename(options.index))[0]
+
+# define these here
+neg_files = []
+pos_files = []
+
+# grab the conf
+conf = extras.process_de_conf(options.de_conf)
 
 @active_if(options.paired)
 @collate(input_files, formatter("([^/]+)_[12].fastq$"), ["{path[0]}/{1[0]}_1.fastq", "{path[0]}/{1[0]}_2.fastq"])
@@ -169,6 +176,7 @@ def tophat_align_unpaired(input_file, output_file, options, extras):
 
     # we cant to have tophat write results to output+filename
     output = os.path.dirname(output_file)
+    log.info("Starting tophat2 run on %s", input_file)
     args = ["tophat2", "-G", options.gtf,"-p", options.cores, "-o", output, options.index, input_file]
 
     try:
@@ -255,9 +263,6 @@ def bg_to_bw(input_file, output_file, genome, output):
 @active_if(options.de)
 @merge(sort_bam, os.path.join(options.output,"cuffdiff/gene_exp.diff",), options, extras)
 def run_cuffdiff(input_files, output_file, options, extras):
-    
-    # grab the conf
-    conf = extras.process_de_conf(options.de_conf)
 
     # make the output file
     output_dir = os.path.join(options.output,"cuffdiff/")
@@ -267,8 +272,8 @@ def run_cuffdiff(input_files, output_file, options, extras):
     pos_label = conf['positive-condition']['label']
     label_string = "{},{}".format(neg_label, pos_label)
 
-    neg_files = []
-    pos_files = []
+    #neg_files = []
+    #pos_files = []
 
     # match the files in conf to the bams we have
     for conf_file in conf['negative-condition']['files']:
@@ -324,6 +329,12 @@ def run_cuffdiff(input_files, output_file, options, extras):
     log.info(output)
 
 @active_if(options.de)
+@posttask(run_cuffdiff)
+def run_cummerbund(options, extras):
+    
+
+
+@active_if(options.de)
 @transform(run_cuffdiff, suffix(".diff"), ".xlsx", options, extras)
 def write_excel_sheet(input_file, output_file, options, extras):
     
@@ -353,6 +364,7 @@ def write_excel_sheet(input_file, output_file, options, extras):
 
     log.info("results written to: %s", output_file)
 
+
 @active_if(options.de)
 @transform(write_excel_sheet, suffix(".xlsx"), ".email", options, input_files, extras)
 def report_success(input_file, output_file, options, inputfiles, extras):
@@ -362,9 +374,14 @@ def report_success(input_file, output_file, options, inputfiles, extras):
     # Create a text/plain message
     email_body = []
     email_body.append("Differential expression pipeline results:\n")
-    email_body.append("The following fastq files were used:")
+    email_body.append("The following bam files were compared:")
     
-    for file in input_files:
+    email_body.append("negative condition:")
+    for file in neg_files:
+        email_body.append("- {}".format(file))
+
+    email_body.append("positive condition:")
+    for file in pos_files:
         email_body.append("- {}".format(file))
 
     email_body.append("\nThe results (xlsx spreadsheet) and pipeline log are attatched")
@@ -376,7 +393,7 @@ def report_success(input_file, output_file, options, inputfiles, extras):
     # header stuff
     # no one else cares but me!
     root  = "root@alpha-helix.oncology.wisc.edu"
-    subject = "Tophat DE pipeline Success report: {}".format(time.strftime("%d/%m/%Y"))
+    subject = "Cuffdiff Report for {} vs {} : {}".format(conf['negative-condition']['label'], conf['positive-condition']['label'], time.strftime("%d/%m/%Y"))
 
     msg['Subject'] = subject
     msg['From'] = root

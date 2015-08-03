@@ -77,23 +77,26 @@ log.info("Starting Cuffiff Run")
 # create extas instance
 extras = TophatExtras(log)
 
+# grab the conf
+conf = extras.process_de_conf(options.de_conf)
+neg_files = []
+pos_files = []
+
+
 # checking the annotation situation :)
 # we either got a db, got a db file and need to make a db, or do nothing
 if options.annotation_file:
-    extras.make_annotation_db(options.annotation_file)
+    extras.make_annotation_db(options.annotation_file, time_stamp, options.output)
 
 elif options.annotation_db:
     extras.init_db(options.annotation_db)
 
-#extras.check_default_args(options.cores, options.index, options.output)
 input_files = extras.make_bam_list(options.dir)
-print input_files
+
 
 @merge(input_files, os.path.join(options.output,"cuffdiff/gene_exp.diff",), options, extras)
 def run_cuffdiff(input_files, output_file, options, extras):
-    
-    # grab the conf
-    conf = extras.process_de_conf(options.de_conf)
+
 
     # make the output file
     output_dir = os.path.join(options.output,"cuffdiff/")
@@ -102,9 +105,6 @@ def run_cuffdiff(input_files, output_file, options, extras):
     neg_label = conf['negative-condition']['label']
     pos_label = conf['positive-condition']['label']
     label_string = "{},{}".format(neg_label, pos_label)
-
-    neg_files = []
-    pos_files = []
 
     # match the files in conf to the bams we have
     for conf_file in conf['negative-condition']['files']:
@@ -147,7 +147,7 @@ def run_cuffdiff(input_files, output_file, options, extras):
 
     # call it
     log.info("Starting cuffdiff run")
-    args = ["cuffdiff", "-o", output_dir, "-L", label_string, "-p", options.cores, options.gtf, ','.join(neg_files), ','.join(pos_files)]
+    args = ["cuffdiff", "--FDR", "0.01", "-o", output_dir, "-L", label_string, "-p", options.cores, options.gtf, ','.join(neg_files), ','.join(pos_files)]
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
@@ -196,9 +196,14 @@ def report_success(input_file, output_file, options, inputfiles, extras):
     # Create a text/plain message
     email_body = []
     email_body.append("Differential expression pipeline results:\n")
-    email_body.append("The following fastq files were used:")
+    email_body.append("The following bam files were compared:")
     
-    for file in input_files:
+    email_body.append("negative condition:")
+    for file in neg_files:
+        email_body.append("- {}".format(file))
+
+    email_body.append("positive condition:")
+    for file in pos_files:
         email_body.append("- {}".format(file))
 
     email_body.append("\nThe results (xlsx spreadsheet) and pipeline log are attatched")
@@ -210,7 +215,7 @@ def report_success(input_file, output_file, options, inputfiles, extras):
     # header stuff
     # no one else cares but me!
     root  = "root@alpha-helix.oncology.wisc.edu"
-    subject = "Tophat DE pipeline Success report: {}".format(time.strftime("%d/%m/%Y"))
+    subject = "Cuffdiff Report for {} vs {} : {}".format(conf['negative-condition']['label'], conf['positive-condition']['label'], time.strftime("%d/%m/%Y"))
 
     msg['Subject'] = subject
     msg['From'] = root
