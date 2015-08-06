@@ -41,6 +41,12 @@ class EbseqExtras():
         else:
             self.conditions[rec.condition] = [rec]
 
+    def gen_fastq_list(self):
+        results = []
+        for sample in self.samples:
+            results.append(sample.name)
+        return results
+
     def gen_sample_list(self):
 
         sample_str = ""

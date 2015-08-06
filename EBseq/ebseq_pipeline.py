@@ -9,9 +9,8 @@ Ruffus pipeline for all things tophat
 # ruffus imports
 from ruffus import *
 import ruffus.cmdline as cmdline
-import logging, time, os
+import logging, time, os, subprocess
 from ebseq_extras import EbseqExtras 
-
 
 # EMAIL
 import smtplib
@@ -26,9 +25,13 @@ parser = cmdline.get_argparse(description="This is a pipeline for RSEM alignment
 # Program arguments
 parser.add_argument("--dir", help="Fullpath to the directory where the FASTQ reads are located", required=True)
 parser.add_argument("--cores", help="Number of cores to run RSEM on", default='10')
-parser.add_argument("--index", help="Fullpath to the RSEM index in: /full/file/path/basename form", default="/data/refs/hg19/hg19-RSEM")
+parser.add_argument("--index", help="Fullpath to the RSEM index in: /full/file/path/basename form", 
+                    default="/data/refs/hg19/hg19-RSEM", required=True)
+
 parser.add_argument("--output", help="Fullpath to output directory", default="./")
-parser.add_argument("--conf", help="Fullpath to conf tsv file, (<sample><frag-mean><frag-sd><cond>)")
+parser.add_argument("--conf", help="Fullpath to conf tsv file, (<sample><frag-mean><frag-sd><cond>)",
+                    required=True)
+
 parser.add_argument("--fdr", help=" false discovery rate to use for DE", default=0.05)
 
 # reporting
@@ -74,10 +77,60 @@ extras.read_configuration(options.conf)
 #   \_ group by cond --> generate-data-matrix --> rsem-run-ebseq --> rsem-control-fdr
 #   \_ res + graphs :: EMAIL
 
+# get the input files together
+input_files = extras.gen_fastq_list()
+log.info("Samples are: ")
+for file in input_files:
+    log.info(file)
+
+@transform(input_files, formatter(), options.output+"{basename[0]}.genes.results", options, extras)
+def rsem_align(input_file, output_file, options, extras):
+    
+    mean_len = extras.get_mean_length(input_file)
+    output_file = output_file.replace("\.genes\.results", "")
+
+    log.info("Running rsem calc exp on %s", output_file)
+    command = ["rsem-calculate-expression", "-p", str(options.cores), "--calc-ci", "--fragment-length-mean", 
+                str(mean_len), input_file, output_file]
+
+    run_cmd(command)
+
+@transform(rsem_align, suffix(".genes.results"), ".pdf", options)
+def plot_model(input_file, output_file, options):
+
+    sample_name = input_file.replace("\.genes\.results", "")
+    command = ["rsem-plot-model", sample_name, output_file]
+
+    run_cmd(command)
+
+@merge(rsem_align, "gene_exp.mtx", extras)
+def generate_exp_matrix(input_files, matrix, extras):
+
+    sample_list = extras.gen_sample_list()
+    command = ["rsem-generate-data-matrix", sample_list, ">", matrix]
+
+    run_cmd(command)
+
+@transform(generate_exp_matrix, suffix(".mtx"), ".diff", extras)
+def run_ebseq(input_file, output_file, extras):
+
+    cond_str = extras.gen_cond_str()
+    command = ["rsem-run-ebseq", input_file, cond_str, output_file]
+
+    run_cmd(command)
+
+@transform(run_ebseq, suffix(".diff"), ".sigdiff", options)
+def fdr_correct(input_file, output_file, options):
+
+    command = ["rsem-control-fdr", input_file, str(options.fdr), output_file]
+
+    run_cmd(command)
+
 # not a ruffus command
 # general command runner
 def run_cmd(cmd):
 
+    log.info("Running: %s", cmd)
     try:
         output = subprocess.Popen(cmd)
         log.info(output)
@@ -88,44 +141,5 @@ def run_cmd(cmd):
         report_error(cmd)
         raise SystemExit
 
-
-@transform(input_files, formatter("([^/]+).fastq$"), options.output+"{1[0]}.genes.results", options)
-def rsem_align(input_file, output_file, options):
-
-    mean_len = extras.get_mean_length(input_file)
-    output_file = output_file.replace("\.genes\.results", "")
-    command = ["rsem-calculate-expression", "-p", str(options.str), "--calc-ci", "--fragment-length-mean", 
-                str(mean_len), input_file, output_file]
-
-    run_cmd(command)
-
-@transform(rsem_align, suffix(".genes.results"), ".pdf", options)
-def plot_model(input_file, output_file):
-
-    sample_name = input_file.replace("\.genes\.results", "")
-    command = ["rsem-plot-model", sample_name, output_file]
-
-    run_cmd(command)
-
-@merge(rsem_align, "gene_exp.mtx")
-def generate_exp_matrix(input_files, matrix, extras):
-
-    sample_list = extras.gen_sample_list()
-    command = ["rsem-generate-data-matrix", sample_list, ">", matrix]
-
-    run_cmd(command)
-
-@transform(generate_exp_matrix, suffix(".mtx"), ".diff")
-def run_ebseq(input_file, output_file, extras):
-
-    cond_str = extras.gen_cond_str()
-    command = ["rsem-run-ebseq", input_file, cond_str, output_file]
-
-    run_cmd(command)
-
-@transform(run_ebseq, suffix(".diff"), ".sigdiff")
-def fdr_correct(input_file, output_file, options):
-
-    command = ["rsem-control-fdr", input_file, str(options.fdr), output_file]
-
-    run_cmd(command)
+# run the pipeline
+cmdline.run(options)
