@@ -1,19 +1,21 @@
 import os.path
+import re
 
 # don't use slots since we only have a few of these guys
 class _sampleRec():
 
     def __init__(self, name, mean, std, condition):
         self.name = name
-        self.mean = mean
-        self.std = std
-        self.condition = condition
+        self.mean = int(mean)
+        self.std = int(std)
+        self.condition = int(condition)
 
 class EbseqExtras():
 
     def __init__(self, log):
         self.log = log
         self.samples = []
+        self.conditions = {}
 
     def read_configuration(self, conf):
         if os.path.isfile(conf):
@@ -24,30 +26,52 @@ class EbseqExtras():
 
             except IOError as e:
                 log.error("IOError thrown trying to read %s conf file, perhap permissions?", conf)
-                # TODO return error maybe?
+                raise SystemExit
         else:
             log.error("It appears %s does not exist", conf)
+            raise SystemExit
 
     def _build_rec(self, line):
         # <sample><frag-mean><frag-sd><cond>
-        sample, frag-mean, frag-sd, cond = line.split("\t")
-        rec = _sampleRec(sample, frag-mean, frag-sd, cond)
+        rec = _sampleRec(*line.split("\t"))
         self.samples.append(rec)
+
+        if rec.condition in self.conditions:
+            self.conditions[rec.condition].append(rec)
+        else:
+            self.conditions[rec.condition] = [rec]
 
     def gen_sample_list(self):
 
-        # get each condition
-        condition_indicies = {}
+        sample_str = ""
+        
+        for cond in sorted(self.conditions.keys()):
+            for rec in self.conditions[cond]:
+                name = re.sub(r"\.fastq", ".genes.results", rec.name)
+                sample_str += name+" " 
+
+        return sample_str.rstrip()
+
+    def get_mean_length(self, file):
+        
+        base = os.path.splitext(file)[0]
         for sample in self.samples:
-            condition_indicies[sample.condition] = 1
 
-        condition_str = {(index, array) for (index, []) in condition_indicies.keys() }
+            sample_base = os.path.splitext(sample.name)[0
 
-        for sample in self.samples:
-            condition_str[sample.condition].append(sample.name+",")
+            ]
+            if base == sample_base:
+                return sample.mean
 
-        final_str = ""
-        for condition_set in condition_str.keys():
-            final_str.append([sample for sample in condition_str[condition_set]])
+        # if it wasnt found
+        raise SystemError
 
-        return final_str
+    def gen_cond_string(self):
+        # if conditions has {1}:[2], {2}:[2], {3}:[2]
+        # we want 2,2,2
+        cond_str = ""
+
+        for condition in sorted(self.conditions.keys()):
+            cond_str += str(len(self.conditions[condition]))+","
+
+        return cond_str.rstrip(",")
