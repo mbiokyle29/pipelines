@@ -90,8 +90,7 @@ def rsem_align(input_file, output_file, options, extras):
     output_file = output_file.replace("\.genes\.results", "")
 
     log.info("Running rsem calc exp on %s", output_file)
-    command = ["rsem-calculate-expression", "-p", str(options.cores), "--calc-ci", "--fragment-length-mean", 
-                str(mean_len), input_file, output_file]
+    command = ["rsem-calculate-expression", "-p", str(options.cores), "--calc-ci", input_file, options.index, output_file]
 
     run_cmd(command)
 
@@ -132,9 +131,8 @@ def run_cmd(cmd):
 
     log.info("Running: %s", cmd)
     try:
-        output = subprocess.Popen(cmd)
-        log.info(output)
-
+        output = subprocess.check_output(cmd)
+	log.info(output)
     # log the error, report it via email and exit
     except subprocess.CalledProcessError as e:
         log.error("Command failed with error: %s", e.message)
