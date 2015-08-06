@@ -9,6 +9,9 @@ Ruffus pipeline for all things tophat
 # ruffus imports
 from ruffus import *
 import ruffus.cmdline as cmdline
+import logging, time, os
+from ebseq_extras import EbseqExtras 
+
 
 # EMAIL
 import smtplib
