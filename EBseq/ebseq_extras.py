@@ -25,10 +25,10 @@ class EbseqExtras():
                         self._build_rec(line)
 
             except IOError as e:
-                log.error("IOError thrown trying to read %s conf file, perhap permissions?", conf)
+                self.log.error("IOError thrown trying to read %s conf file, perhap permissions?", conf)
                 raise SystemExit
         else:
-            log.error("It appears %s does not exist", conf)
+            self.log.error("It appears %s does not exist", conf)
             raise SystemExit
 
     def _build_rec(self, line):

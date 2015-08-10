@@ -87,7 +87,7 @@ for file in input_files:
 def rsem_align(input_file, output_file, options, extras):
     
     mean_len = extras.get_mean_length(input_file)
-    output_file = output_file.replace("\.genes\.results", "")
+    output_file = output_file.replace(".genes.results", "")
 
     log.info("Running rsem calc exp on %s", output_file)
     command = ["rsem-calculate-expression", "-p", str(options.cores), "--calc-ci", input_file, options.index, output_file]
