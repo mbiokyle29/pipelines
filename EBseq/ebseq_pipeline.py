@@ -136,7 +136,7 @@ def run_cmd(cmd):
     # log the error, report it via email and exit
     except subprocess.CalledProcessError as e:
         log.error("Command failed with error: %s", e.message)
-        report_error(cmd)
+        extras.report_error(cmd)
         raise SystemExit
 
 # run the pipeline
