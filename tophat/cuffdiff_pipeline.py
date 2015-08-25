@@ -20,6 +20,10 @@ import subprocess, logging, os, re, time
 # :) so i never have to touch excel
 import pandas as pd
 
+# for cummerbund
+import rpy2.robjects as robjects
+from rpy2.robjects.packages import importr
+
 # EMAIL
 import smtplib
 from email.MIMEMultipart import MIMEMultipart
@@ -31,7 +35,7 @@ from email import Encoders
 parser = cmdline.get_argparse(description='This pipeline provides a number of funtionalities for working with RNAseq data')
 
 # Program arguments
-parser.add_argument("--dir", help="Fullpath to the directory where the FASTQ reads are located", required=True)
+parser.add_argument("--dir", help="Fullpath to the directory where the bams are located", required=True)
 parser.add_argument("--cores", help="Number of cores to run cuffdiff on", default='10')
 parser.add_argument("--output", help="Fullpath to output directory", default="./")
 parser.add_argument("--size", help="Fullpath to size file")
@@ -42,13 +46,13 @@ parser.add_argument("--annotation-db", help="fullpath to the sqlite db file, <id
 parser.add_argument("--annotation-file", help="fullpath to a tsv file of gene annotations, will create sqlite db")
 
 # reporting
-parser.add_argument("--emails", help="Emails to send DE results too", default="kgmcchesney@wisc.edu", nargs="+")
+parser.add_argument("--emails", help="Emails to send DE results too", default="mbio.kyle@gmail.com", nargs="+")
 
 # parse the args
 options = parser.parse_args()
 
 # package the emails into an array if just one
-if options.emails == "kgmcchesney@wisc.edu":
+if options.emails == "mbio.kyle@gmail.com":
     options.emails = [options.emails]
 
 # Kenny loggins
@@ -147,7 +151,7 @@ def run_cuffdiff(input_files, output_file, options, extras):
 
     # call it
     log.info("Starting cuffdiff run")
-    args = ["cuffdiff", "--FDR", "0.01", "-o", output_dir, "-L", label_string, "-p", options.cores, options.gtf, ','.join(neg_files), ','.join(pos_files)]
+    args = ["cuffdiff", "--FDR", "0.05", "-o", output_dir, "-L", label_string, "-p", options.cores, options.gtf, ','.join(neg_files), ','.join(pos_files)]
     try:
         output = subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
@@ -188,8 +192,35 @@ def write_excel_sheet(input_file, output_file, options, extras):
 
     log.info("results written to: %s", output_file)
 
-@transform(write_excel_sheet, suffix(".xlsx"), ".email", options, input_files, extras)
-def report_success(input_file, output_file, options, inputfiles, extras):
+@transform(run_cuffdiff, suffix(".diff"), ".pdf", options)
+def cummeRbund(input_file, output_file, options):
+
+    # import the grapher and cummerBund
+    grdevices = importr('grDevices')
+    r_bund = importr("cummeRbund")
+    r_plot = robjects.r('plot')
+
+
+    # read in the diff results
+    cuff = r_bund.readCufflinks(options.output)
+    grdevices.pdf(file=input_file, width=10, height=10)
+
+    r_plot(r_bund.dispersionPlot(r_bund.genes(cuff)))
+    r_plot(r_bund.csBoxplot(r_bund.genes(cuff),replicates=True))
+    r_plot(r_bund.csDendro(r_bund.genes(cuff),replicates=True))
+    r_plot(r_bund.csBoxplot(r_bund.genes(cuff)))
+    r_plot(r_bund.csDistHeat(r_bund.genes(cuff)))
+    r_plot(r_bund.csDistHeat(r_bund.genes(cuff), replicates=True))
+    r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC1","PC2"))
+    r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC1","PC2",replicates=True))
+    r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC2","PC2"))
+    r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC3","PC2",replicates=True))
+
+    # close the dev
+    grdevices.dev_off()
+
+@merge([write_excel_sheet, cummeRbund], ".email", options, input_files, extras)
+def report_success(input_files, output_file, options, inputfiles, extras):
     
     log.info("Sending email report")
     
@@ -223,7 +254,7 @@ def report_success(input_file, output_file, options, inputfiles, extras):
     msg.attach( MIMEText("\n".join(email_body)) )
 
     # attatch the files
-    for file in [input_file, log.handlers[0].baseFilename]:
+    for file in [input_files, log.handlers[0].baseFilename]:
         part = MIMEBase('application', "octet-stream")
         part.set_payload( open(file,"rb").read() )
         Encoders.encode_base64(part)
