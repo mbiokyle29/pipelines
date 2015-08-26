@@ -34,8 +34,8 @@ parser.add_argument("--dir", help="Fullpath to the directory where the FASTQ rea
 parser.add_argument("--cores", help="Number of cores to run bowtie on", default='10')
 parser.add_argument("--index", help="Fullpath to the bowtie2 index in: /full/file/path/basename form", default="/data/refs/hg19/hg19")
 parser.add_argument("--output", help="Fullpath to output directory", default="./")
-parser.add_argument("--size", help="Fullpath to size file", required=True)
-parser.add_argument("--gtf", help="Fullpath to gtf file", required=True)
+parser.add_argument("--size", help="Fullpath to size file", default="/data/refs/hg19/hg19.sizes")
+parser.add_argument("--gtf", help="Fullpath to gtf file", default="/data/refs/hg19/hg19.gtf")
 parser.add_argument("--paired", help="Indicates whether the reads in --dir are paired_end. MUST FOLLOW _1 _2 convention", default=False)
 
 # optional arguments to control turning on and off tasks
@@ -94,7 +94,7 @@ extras = TophatExtras(log)
 # checking the annotation situation :)
 # we either got a db, got a db file and need to make a db, or do nothing
 if options.annotation_file:
-    extras.make_annotation_db(options.annotation_file)
+    extras.make_annotation_db(options.annotation_file, time_stamp, options.output)
 
 elif options.annotation_db:
     extras.init_db(options.annotation_db)
@@ -377,12 +377,6 @@ def run_cuffdiff(input_files, output_file, options, extras):
     # print output
     log.info("cuffdiff output:")
     log.info(output)
-
-@active_if(options.de)
-@posttask(run_cuffdiff)
-def run_cummerbund(options, extras):
-    
-
 
 @active_if(options.de)
 @transform(run_cuffdiff, suffix(".diff"), ".xlsx", options, extras)
