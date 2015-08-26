@@ -39,21 +39,30 @@ parser.add_argument("--gtf", help="Fullpath to gtf file", required=True)
 parser.add_argument("--paired", help="Indicates whether the reads in --dir are paired_end. MUST FOLLOW _1 _2 convention", default=False)
 
 # optional arguments to control turning on and off tasks
+# trimming
+parser.add_argument("--trim", help="Whether or not to trim the fastq reads", type=bool, default=False)
+parser.add_argument("--trim-val", help="Value to trim by (from the end of read)", default=50)
+
+# reporting / meta analysis
 parser.add_argument("--bw", help="Whether or not big wig files should be generated", type=bool, default=False)
 parser.add_argument("--one-codex", help="Whether or not to upload each sample to one codex for metagenomic analysis", default=False)
+
+# DE
 parser.add_argument("--de", help="Whether or not differential expression should be calculated", type=bool, default=False)
 parser.add_argument("--de-conf", help="fullpath to differential expresssion configuration file")
+
+# gene annotations for DE
 parser.add_argument("--annotation-db", help="fullpath to the sqlite db file, <id><name><desc>")
 parser.add_argument("--annotation-file", help="fullpath to a tsv file of gene annotations, will create sqlite db")
 
 # reporting
-parser.add_argument("--emails", help="Emails to send DE results too", default="kgmcchesney@wisc.edu", nargs="+")
+parser.add_argument("--emails", help="Emails to send DE results too", default="mbio.kyle@gmail.com", nargs="+")
 
 # parse the args
 options = parser.parse_args()
 
 # package the emails into an array if just one
-if options.emails == "kgmcchesney@wisc.edu":
+if options.emails == "mbio.kyle@gmail.com":
     options.emails = [options.emails]
 
 # Kenny loggins
@@ -97,9 +106,11 @@ genome = os.path.splitext(os.path.basename(options.index))[0]
 # define these here
 neg_files = []
 pos_files = []
+conf = None
 
 # grab the conf
-conf = extras.process_de_conf(options.de_conf)
+if options.de:
+    conf = extras.process_de_conf(options.de_conf)
 
 @active_if(options.paired)
 @collate(input_files, formatter("([^/]+)_[12].fastq$"), ["{path[0]}/{1[0]}_1.fastq", "{path[0]}/{1[0]}_2.fastq"])
@@ -169,8 +180,47 @@ def tophat_align_paired(input_files, output_file, options, extras):
     log.info("tophat2 output:")
     log.info(output)
 
+# pre trimming
+@active_if(options.trim)
+@transform(input_files, suffix(".fastq"), ".trimmed.fastq", options, extras)
+def trim_fastq_files(input_file, output_file, options, extras):
+
+    # trim it
+    args = ["seqtk", "trimfq", "-e", options.trim_val input_file, ">" output_file]
+    try:
+        subprocess.check_call(args)
+    except subprocess.CalledProcessError:
+        log.warn("SeqTK failed trimming %s", input_file)
+        extras.report_error("seqTK trimming", "failed")
+        raise SystemExit
+
+@active_if(options.trim)
+@transform(trim_fastq_files, formatter(), options.output+"{basename[0]}-tophat-results/accepted_hits.bam", options, extras)
+def tophat_align_trimmed(input_file, output_file, options, extras):
+
+    # we cant to have tophat write results to output+filename
+    output = os.path.dirname(output_file)
+    log.info("Starting tophat2 run on trimmed %s", input_file)
+    args = ["tophat2", "-G", options.gtf,"-p", options.cores, "-o", output, options.index, input_file]
+
+    try:
+        output = subprocess.check_output(args, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError:
+        log.warn(output)
+        extras.report_error("tophat_unpaird","tophat2 unpaired failed: \n{}".format(output))
+        raise SystemExit
+
+    # print output
+    log.info("tophat2 output:")
+    log.info(output)
+
+    # delete the trimmed fastq file
+    log.info("Deleting the trimmed file")
+    os.unlink(input_file)
+
 # unpaired alignment function
 @active_if(not options.paired)
+@active_if(not options.trim)
 @transform(input_files, formatter(), options.output+"{basename[0]}-tophat-results/accepted_hits.bam", options, extras)
 def tophat_align_unpaired(input_file, output_file, options, extras):
 
@@ -191,7 +241,7 @@ def tophat_align_unpaired(input_file, output_file, options, extras):
     log.info(output)
 
 # get rid of stupid accepted_hits.bam file
-@transform([tophat_align_unpaired, tophat_align_paired],
+@transform([tophat_align_unpaired, tophat_align_paired, tophat_align_trimmed],
             formatter(r".*/([^/]+)-tophat-results/accepted_hits.bam$"), 
             ''.join([options.output, "{1[0]}", ".bam"]), extras )
 def rename_accepted_hits(input_file, output_file, extras):
