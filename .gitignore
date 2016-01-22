@@ -58,3 +58,4 @@ target/
 .ruff*
 test-paired/
 test-out/
+test-data/
