@@ -16,23 +16,19 @@ import sh
 import time
 import os
 
-# EMAIL
-import smtplib
-from email.MIMEMultipart import MIMEMultipart
-from email.MIMEBase import MIMEBase
-from email.MIMEText import MIMEText
-from email.Utils import COMMASPACE, formatdate
-from email import Encoders
 
 # UTILS
-from utils import make_fastq_list, log_line
+from utils import make_fastq_list, log_line, send_report
 
 parser = cmdline.get_argparse(description='RSEM and deseq2 pipeline')
 parser.add_argument("--dir", help="Fullpath to the directory where the FASTQ reads are located", required=True)
 parser.add_argument("--index", help="Fullpath to the bowtie2 index in: /full/file/path/basename form", default="/data/refs/AKATA-GFP/AKATA_GFP_RSEM")
 parser.add_argument("--output", help="Fullpath to output directory", default="./")
+parser.add_argument("--name", help="Optional experiment name", dest="exp_name", default="rsem-deseq")
+parser.add_argument("--to", help="List of emails to send final reports too", nargs="+", default=["mbio.kyle@gmail.com"])
 parser.add_argument("--cores", "-p", help="Number of cores to run on", default=5)
 parser.add_argument("--size", help="Fullpath to size file", default="/data/refs/AKATA-GFP/AKATA_GFP.size")
+
 options = parser.parse_args()
 
 # Kenny loggins
@@ -99,6 +95,7 @@ except ImportError as e:
     raise SystemExit
 
 fastq_files = make_fastq_list(options.dir)
+make_wigs = "hg" not in options.index
 
 @transform(fastq_files, suffix(".fastq"), ".genome.sorted.bam", options, rce, output_dir = options.output)
 def rsem_calculate_expression(input_file, output_file, options, rce):
@@ -110,6 +107,7 @@ def rsem_calculate_expression(input_file, output_file, options, rce):
     
     rce(input_file, options.index, output_file)
 
+@active_if(make_wigs)
 @transform(rsem_calculate_expression, suffix(".genome.sorted.bam"), ".wig", options, rbw, output_dir = options.output)
 def rsem_bam_to_wig(input_file, output_file, options, rbw):
     plot_name = output_file.replace(".wig", "")
@@ -132,19 +130,25 @@ def wig_to_big_wig(input_file, output_file, options, wtbw):
 def collect_gene_results(input_file, output_file):
     log.info("collecting count results for %s", input_file)
 
-@merge(collect_gene_results, options.output+"rawCounts.mtx", options, rgdm)
+@merge(collect_gene_results, options.output+options.exp_name+"-counts.mtx", options, rgdm)
 def rsem_generate_data_matrix(input_files, output_file, options, rgdm):
     
     ordered_samples = sorted(input_files)
     log.info("Running rsem generate data matrix")
     log.info("CMD: %s %s > %s", rgdm, " ".join(input_files), output_file)
-    rgdm(ordered_samples, _out=output_file)
+    rgdm(*ordered_samples, _out=output_file)
 
 @follows(rsem_generate_data_matrix, wig_to_big_wig, 
-         mkdir(options.output+"bams/", options.output+"vis/", options.output+"etc/"))
-def clean_up():
+         mkdir(options.output+"bams/", options.output+"vis/", options.output+"etc/",
+               options.output+"counts/"))
+@transform(rsem_generate_data_matrix, suffix(".mtx"), ".email", options)
+def clean_up(matrix_file, email_name, options):
 
     mv = sh.mv
+
+    count_glob = options.output+"*.genes.results"
+    count_dest = options.output+"counts/"
+
     gbam_glob = options.output+"*.genome.sorted.bam"
     gbam_dest = options.output+"bams/"
     
@@ -158,13 +162,24 @@ def clean_up():
     etc_dest = options.output+"etc/"
 
     mv(sh.glob(gbam_glob), gbam_dest)
+    mv(sh.glob(count_glob), count_dest)
     mv(sh.glob(wig_glob), vis_dest)
     mv(sh.glob(bw_glob), vis_dest)
 
-    [mv(sh.glob(x), etc_dest) for x in [isoform_glob, transcript_glob, stat_glob]]
+    [mv(sh.glob(x), etc_dest) for x in [isoform_glob, stat_glob]]
 
     sh.rm(sh.glob(options.output+"*.bai"))
     sh.rm(sh.glob(options.output+"*.genome.bam"))
+    sh.rm(sh.glob(transcript_glob))
+
+    report_files = [matrix_file, log.handlers[0].baseFilename]
+    subject = "RSEM/deseq2 pipeline"
+
+    if options.exp_name != "rsem-deseq":
+        subject += " - {}".format(options.exp_name)
+
+    send_report(list(options.to), subject, report_files)
+
 
 # run the pipelined
-cmdline.run(options)
+cmdline.run(options)    
