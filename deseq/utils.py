@@ -2,6 +2,8 @@ import os
 import logging
 import sh
 import glob
+import re
+from collections import defaultdict
 
 # EMAIL
 import smtplib
@@ -86,3 +88,37 @@ def send_report(to, subj, files):
     s = smtplib.SMTP('localhost')
     s.sendmail(root, to, msg.as_string())
     s.quit()
+
+def guess_simple_design_matrix(fastq_list, path):
+
+    # the hope is that the files look like
+    # [STUFF]_rep#.fastq
+    groups = defaultdict(list)
+    pattern = re.compile(r"(.+)[-_.]rep\d\.fastq")
+
+    for fq in fastq_list:
+        fq = os.path.basename(fq)
+        match = pattern.match(fq)
+        if match is not None:
+            groups[match.group(1)].append(fq)
+
+    potential_matrix = ["\tcondition"]
+    for group in sorted(groups):
+        group_samples = sorted(groups[group])
+        for samp in group_samples:
+            potential_matrix.append("{}\t{}".format(samp, group))
+    
+    log.info("Here is a best guess matrix file\n")
+    prog_log.info("\n".join(potential_matrix))
+    prog_log.info("\nDoes this look ok?")
+    answer = raw_input("(Y/N) -> ")
+
+    if answer == "Y":
+        matrix_file = os.path.join(path, "deseq-conditions.mtx")
+        with open(matrix_file, "w") as fh:
+            for line in potential_matrix:
+                fh.write(line)
+        return matrix_file
+    else:
+        log.warn("Guessed matrix does not work, and none supplied, exiting")
+        raise SystemExit
