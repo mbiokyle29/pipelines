@@ -192,34 +192,43 @@ def write_excel_sheet(input_file, output_file, options, extras):
 
     log.info("results written to: %s", output_file)
 
-@transform(run_cuffdiff, suffix(".diff"), ".pdf", options)
-def cummeRbund(input_file, output_file, options):
+#@transform(run_cuffdiff, suffix(".diff"), ".pdf", options)
+#def cummeRbund(input_file, output_file, options):
+#    
+#    try:
+#        # import the grapher and cummerBund
+#        grdevices = importr('grDevices')
+#        r_bund = importr("cummeRbund")
+#        r_plot = robjects.r('plot')
+#
+#
+#        # read in the diff results
+#        cuff = r_bund.readCufflinks(options.output)
+#        grdevices.pdf(file=input_file, width=10, height=10)
+#
+#        r_plot(r_bund.dispersionPlot(r_bund.genes(cuff)))
+#        r_plot(r_bund.csBoxplot(r_bund.genes(cuff),replicates=True))
+#        r_plot(r_bund.csDendro(r_bund.genes(cuff),replicates=True))
+#        r_plot(r_bund.csBoxplot(r_bund.genes(cuff)))
+#        r_plot(r_bund.csDistHeat(r_bund.genes(cuff)))
+#        r_plot(r_bund.csDistHeat(r_bund.genes(cuff), replicates=True))
+#        r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC1","PC2"))
+#        r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC1","PC2",replicates=True))
+#        r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC2","PC2"))
+#        r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC3","PC2",replicates=True))
+#        
+#        # close the dev
+#        grdevices.dev_off()
+#
+#    except Exception:
+#
+#        log.warn("R Error, bailing out")
+#        
+#        # touch the file so report doesnt bork
+#        os.unlink(output_file)
+#        open(output_file, "a").close()
 
-    # import the grapher and cummerBund
-    grdevices = importr('grDevices')
-    r_bund = importr("cummeRbund")
-    r_plot = robjects.r('plot')
-
-
-    # read in the diff results
-    cuff = r_bund.readCufflinks(options.output)
-    grdevices.pdf(file=input_file, width=10, height=10)
-
-    r_plot(r_bund.dispersionPlot(r_bund.genes(cuff)))
-    r_plot(r_bund.csBoxplot(r_bund.genes(cuff),replicates=True))
-    r_plot(r_bund.csDendro(r_bund.genes(cuff),replicates=True))
-    r_plot(r_bund.csBoxplot(r_bund.genes(cuff)))
-    r_plot(r_bund.csDistHeat(r_bund.genes(cuff)))
-    r_plot(r_bund.csDistHeat(r_bund.genes(cuff), replicates=True))
-    r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC1","PC2"))
-    r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC1","PC2",replicates=True))
-    r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC2","PC2"))
-    r_plot(r_bund.PCAplot(r_bund.genes(cuff),"PC3","PC2",replicates=True))
-
-    # close the dev
-    grdevices.dev_off()
-
-@merge([write_excel_sheet, cummeRbund], ".email", options, input_files, extras)
+@merge(write_excel_sheet, ".email", options, input_files, extras)
 def report_success(input_files, output_file, options, inputfiles, extras):
     
     log.info("Sending email report")

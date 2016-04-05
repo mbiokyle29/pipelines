@@ -25,6 +25,9 @@ ddsMF <- countMtx.deseq
 ddsMF <- ddsMF[ rowSums(counts(ddsMF)) > 1, ]
 ddsMF <- DESeq(ddsMF)
 
+# resTC = results(dds, contrast=c("condition","T","C"))
+# this will give a results table of log fold changes (LFC) of T over C. 
+# Here a positive LFC means T has higher counts than C. A negative LFC means T has lower counts than C. 
 
 pdf("")
 

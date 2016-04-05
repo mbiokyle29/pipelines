@@ -161,10 +161,11 @@ def tophat_align_paired(input_files, output_file, options, extras):
 def trim_fastq_files(input_file, output_file, options, extras):
 
     # trim it
-    args = ["seqtk", "trimfq", "-e", options.trim_val input_file, ">" output_file]
-    try:
-        subprocess.check_call(args)
-    except subprocess.CalledProcessError:
+    args = "seqtk trimfq -e {} {} > {}".format(options.trim_val, input_file, output_file)
+    p = subprocess.Popen(args, shell=True)
+    p.wait()
+    
+    if p.returncode != 0: 
         log.warn("SeqTK failed trimming %s", input_file)
         extras.report_error("seqTK trimming", "failed")
         raise SystemExit

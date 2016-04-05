@@ -4,8 +4,8 @@ dir <- args[1]
 
 # load it up
 library("cummeRbund")
-cuff <- readCufflinks(dir)
-pdf(file=paste(dir, "/", "cummeRbund.pdf", sep=""), width=10, height=10)
+cuff <- readCufflinks()
+pdf(file=paste("./", "/", "cummeRbund.pdf", sep=""), width=10, height=10)
 
 # generate the dispersion plot and add a title
 d<-dispersionPlot(genes(cuff))
@@ -32,5 +32,11 @@ PCA<-PCAplot(genes(cuff),"PC1","PC2")
 plot(PCA)
 
 PCA<-PCAplot(genes(cuff),"PC1","PC2",replicates=T)
+plot(PCA)
+
+PCA<-PCAplot(genes(cuff),"PC2","PC2")
+plot(PCA)
+
+PCA<-PCAplot(genes(cuff),"PC3","PC2",replicates=T)
 plot(PCA)
 dev.off();

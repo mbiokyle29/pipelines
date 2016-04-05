@@ -106,7 +106,7 @@ class EbseqExtras():
         # header stuff
         # no one else cares but me!
         root  = "root@alpha-helix.oncology.wisc.edu"
-        me = "kgmcchesney@wisc.edu"
+        me = "mbio.kyle@gmail.com"
         subject = "RSEM/EBseq pipeline failure report: {}".format(time.strftime("%d/%m/%Y"))
         
         msg['Subject'] = subject

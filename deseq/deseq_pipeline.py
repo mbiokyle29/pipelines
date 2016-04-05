@@ -115,10 +115,10 @@ try:
 
     if options.no_bam:
         rce = rce.bake("-p", str(options.cores), "--no-bam-output",
-                       "--calc-ci", _out=log_line, _err_to_out=True)
+                       _out=log_line, _err_to_out=True)
     else:
         rce = rce.bake("-p", str(options.cores), "--output-genome-bam", 
-                       "--calc-ci", _out=log_line, _err_to_out=True)
+                       _out=log_line, _err_to_out=True)
     
     rbw = rbw.bake(_out=log_line, _err_to_out=True)
     wtbw = wtbw.bake(_out=log_line, _err_to_out=True)
