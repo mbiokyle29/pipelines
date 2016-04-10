@@ -106,15 +106,18 @@ total_srr_list = map(lambda x: options.output + x +".fastq", total_srr_list)
 assert len(set(total_srr_list)) == len(total_srr_list)
 
 @originate(total_srr_list, fqd, output)
-def download_fastq_files(srr_file, fqd, output):
+def fake_download_fastq_files(fastq_file, fqd, output):
+
+    srr_file = fastq_file.replace(".fastq", ".sra")
+    sh.touch(srr_file)
+
+@transform(fake_download_fastq_files, suffix(".fastq"), ".sam")
+def align_with_bwa(input_fastq, output_sam, fasta):
 
     srr_number = path.splitext(path.basename(srr_file))[0]
     log.info("Fastq dumping: %s (%s)", srr_file, srr_number)
     assert srr_number.startswith("SRR")
     fqd(srr_number)
-
-@transform(download_fastq_files, suffix(".fastq"), ".sam")
-def align_with_bwa(input_fastq, output_sam, fasta):
 
     log.info("Aligning %s with %s", input_fastq, bwa)
     bwa_log = output_sam + ".log"
