@@ -11,6 +11,7 @@ import logging
 import os
 import subprocess
 import time
+from functools import partial
 
 import pandas as pd
 import ruffus.cmdline as cmdline
@@ -61,6 +62,9 @@ parser.add_argument("--no-wig",
 
 parser.add_argument("--design-file",
                     help="DESeq2 design matrix file (TSV) samples & treatments")
+
+parser.add_argument("--start", help="Use STAR for RSEM alignment",
+                    action='store_true')
 
 options = parser.parse_args()
 
@@ -113,13 +117,18 @@ try:
     # get kent tools wig --> big wig
     from sh import wigToBigWig as wtbw
 
-    if options.no_bam:
-        rce = rce.bake("-p", str(options.cores), "--no-bam-output",
-                       _out=log_line, _err_to_out=True)
-    else:
-        rce = rce.bake("-p", str(options.cores), "--output-genome-bam", 
-                       _out=log_line, _err_to_out=True)
+    # set up RSEM
+    rce = partial(rce.bake, "-p", str(options.cores),
+                  _out=log_line, _err_to_out=True)
     
+    # handle bam
+    bam_opt = "--no-bam-output" if options.no_bam else "--output-genome-bam"
+    rce = parial(rce, bam_opt)
+
+    # handle aligner
+    if options.star:
+        rce = partial(rce, "--star")
+
     rbw = rbw.bake(_out=log_line, _err_to_out=True)
     wtbw = wtbw.bake(_out=log_line, _err_to_out=True)
 
@@ -129,14 +138,13 @@ try:
     log.info(rgdm)
 
 except ImportError as e:
-    log.warn("Is RSEM installed?")
+    log.warn("Is RSEM  and kent tools installed?")
     log.warn(e)
     raise SystemExit
 
 
 ##
 ## Globals :/
-###
 fastq_files = make_fastq_list(options.dir)
 log.info("The following fastq files were found:")
 for fastq in fastq_files:
@@ -248,15 +256,6 @@ def clean_up(files, email_name, options):
     mv(sh.glob(stat_glob), stat_dest)
     
     log.info("Deleting junk files")
-
-    if not options.no_bam:
-        bai_glob = options.dir+"*.bai"
-        ubam_glob = options.dir+"*.genome.bam"
-        transcript_glob = options.dir+"*transcript*"
-        [sh.rm(sh.glob(g)) for g in [bai_glob, ubam_glob, transcript_glob]]
-
-    sh.rmdir(sh.glob(stat_dir_glob))
-
     report_files = [files[0], files[1], log.handlers[0].baseFilename]
     subject = "RSEM/deseq2 pipeline"
 
